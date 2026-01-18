@@ -3,11 +3,11 @@ package main
 import "core:fmt"
 import "core:os"
 import "core:math"
-import "core:math/linalg"
 import "core:strings"
 import "core:bufio"
 import "core:time"
 import "core:sys/posix"
+import "core:sys/unix"
 
 Key :: enum {
     None,
@@ -61,24 +61,24 @@ enable_raw_mode :: proc(orig: ^posix.termios) -> bool {
     }
     orig^ = term
 
-    term.c_iflag &~= { .IGNBRK, .BRKINT, .PARMRK, .ISTRIP, .INLCR, .IGNCR, .ICRNL, .IXON }
-    term.c_oflag &~= { .OPOST }
-    term.c_lflag &~= { .ECHO, .ECHONL, .ICANON, .ISIG, .IEXTEN }
-    term.c_cflag &~= { .CSIZE }
-    term.c_cflag |=  posix.CS8
+    term.c_iflag &= ~u32(posix.IGNBRK | posix.BRKINT | posix.PARMRK | posix.ISTRIP | posix.INLCR | posix.IGNCR | posix.ICRNL | posix.IXON)
+    term.c_oflag &= ~u32(posix.OPOST)
+    term.c_lflag &= ~u32(posix.ECHO | posix.ECHONL | posix.ICANON | posix.ISIG | posix.IEXTEN)
+    term.c_cflag &= ~u32(posix.CSIZE)
+    term.c_cflag |= u32(posix.CS8)
     term.c_cc[posix.VMIN]  = 0
     term.c_cc[posix.VTIME] = 0
 
-    return posix.tcsetattr(0, .TCSANOW, &term) == 0
+    return posix.tcsetattr(0, posix.TCSANOW, &term) == 0
 }
 
 disable_raw_mode :: proc(orig: ^posix.termios) {
-    posix.tcsetattr(0, .TCSADRAIN, orig)
+    posix.tcsetattr(0, posix.TCSADRAIN, orig)
 }
 
 get_term_size :: proc() -> (height, width: i32) {
-    ws: posix.winsize
-    _, err := posix.ioctl(1, posix.TIOCGWINSZ, &ws)
+    ws: unix.winsize
+    err := unix.ioctl(1, unix.TIOCGWINSZ, &ws)
     if err == 0 {
         height = i32(ws.ws_row) - 3
         width  = i32(ws.ws_col)
@@ -129,31 +129,31 @@ draw :: proc(g: ^Game) {
     fmt.printf("Speed: %.1f | Time: %.1fs | Score: %d | A/D / <- -> : sterowanie | Q: wyjście\n\n", g.config.speed, g.time, g.score)
 
     // Road
-    for row := 0; row < g.height; row += 1 {
-        left_x, right_x := compute_road(g, i32(row))
+    for row in 0..<g.height {
+        left_x, right_x := compute_road(g, row)
 
         if row == g.height - 1 {
             // Car row
             car_pos := i32(g.pos_x)
-            fmt.printf("%*s", left_x, "#")
+            fmt.printf("%*s", int(left_x), strings.repeat("#", int(left_x)))
             if car_pos >= left_x && car_pos < right_x {
-                fmt.printf("%*s@", car_pos - left_x, strings.repeat(" ", car_pos - left_x))
-                fmt.printf("%*s", right_x - car_pos - 1, strings.repeat(" ", right_x - car_pos - 1))
+                fmt.printf("%*s@", int(car_pos - left_x), strings.repeat(" ", int(car_pos - left_x)))
+                fmt.printf("%*s", int(right_x - car_pos - 1), strings.repeat(" ", int(right_x - car_pos - 1)))
             } else {
-                fmt.printf("%*s", right_x - left_x, strings.repeat(" ", right_x - left_x))
+                fmt.printf("%*s", int(right_x - left_x), strings.repeat(" ", int(right_x - left_x)))
             }
-            fmt.printf("%*s\n", g.width - right_x, strings.repeat("#", g.width - right_x))
+            fmt.printf("%*s\n", int(g.width - right_x), strings.repeat("#", int(g.width - right_x)))
         } else {
-            fmt.printf("%*s%*s%*s\n", left_x, strings.repeat("#", left_x), right_x - left_x, strings.repeat(" ", right_x - left_x), g.width - right_x, strings.repeat("#", g.width - right_x))
+            fmt.printf("%*s%*s%*s\n", int(left_x), strings.repeat("#", int(left_x)), int(right_x - left_x), strings.repeat(" ", int(right_x - left_x)), int(g.width - right_x), strings.repeat("#", int(g.width - right_x)))
         }
     }
 }
 
 update :: proc(g: ^Game, dt: f32, key: Key) {
     // Input
-    switch key {
-        case .Left:  g.pos_x -= g.config.handling * dt * 200
-        case .Right: g.pos_x += g.config.handling * dt * 200
+    #partial switch key {
+                        case .Left:  g.pos_x -= g.config.handling * dt * 200
+                        case .Right: g.pos_x += g.config.handling * dt * 200
     }
 
     // Update
@@ -181,9 +181,9 @@ main :: proc() {
     fmt.print("Wybierz serie (1-3): ")
 
     r: bufio.Reader
-    bufio.reader_init(&r, os.stdin)
-    line, _, _ := bufio.reader_read_string(&r, '\n')
-    trimmed := strings.trim_space(string(line))
+    bufio.reader_init(&r, os.stream_from_handle(os.stdin))
+    line, _ := bufio.reader_read_string(&r, '\n')
+    trimmed := strings.trim_space(line)
 
     series: Series = .F1
     switch {
