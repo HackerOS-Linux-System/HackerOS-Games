@@ -1,0 +1,10 @@
+// cargo
+// python3.13
+// love
+// odin
+
+> cd the-racer && odin build . && cd ..
+> cd bit-jump && tar && sudo mv && cd ..
+> cd starblaster && cargo build --release && cd ..
+> cd app && 
+  
