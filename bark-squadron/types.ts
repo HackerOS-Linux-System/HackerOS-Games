@@ -37,6 +37,7 @@ export interface Plane extends Entity {
   color: string;
   rotationSpeed: number; // Individual agility
   speedStat: number;     // Individual max speed
+  afterburner: boolean;
 }
 
 export interface Bullet extends Entity {
@@ -49,7 +50,7 @@ export interface Particle extends Entity {
   life: number;
   maxLife: number;
   size: number;
-  type: 'fire' | 'smoke' | 'spark';
+  type: 'fire' | 'smoke' | 'spark' | 'splash' | 'wake';
 }
 
 export interface GameStats {
@@ -62,4 +63,6 @@ export interface GameSettings {
   difficulty: 'easy' | 'normal' | 'hard';
   showHitboxes: boolean;
   particles: boolean;
+  highQuality: boolean;
+  sensitivity: number; // 0.5 to 2.0
 }
