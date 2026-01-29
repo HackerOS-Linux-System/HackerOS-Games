@@ -12,10 +12,13 @@ function createWindow() {
     icon: path.join(__dirname, 'icon.png')
   });
 
-  // In a real build, this would serve the built index.html
-  // For this environment, we assume serving locally or loading file
-  win.loadURL('http://localhost:3000'); 
-  // Or: win.loadFile('index.html');
+  // If the app is packaged (e.g. AppImage), load the built file.
+  // Otherwise, try to connect to the local Vite dev server.
+  if (app.isPackaged) {
+    win.loadFile(path.join(__dirname, 'dist', 'index.html'));
+  } else {
+    win.loadURL('http://localhost:5173');
+  }
 }
 
 app.whenReady().then(() => {
