@@ -2,661 +2,698 @@ use macroquad::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::fs;
 
-// Serializable Vec2
+// ==========================================
+// CONSTANTS & CONFIG
+// ==========================================
+const PLAYER_SPEED: f32 = 350.0;
+const MAX_HEAT: f32 = 100.0;
+const HEAT_PER_SHOT: f32 = 15.0;
+const COOLING_RATE: f32 = 40.0;
+const GRAZE_DISTANCE: f32 = 30.0;
+const COMBO_DECAY: f32 = 2.0; // Seconds before combo resets
+const SCREEN_PADDING: f32 = 20.0;
+
+// Explicitly define colors to avoid scope issues
+const CYAN: Color = Color::new(0.0, 1.0, 1.0, 1.0);
+const PINK: Color = Color::new(1.0, 0.75, 0.8, 1.0);
+
+// ==========================================
+// DATA STRUCTURES (SERIALIZABLE)
+// ==========================================
+
+// Global struct for Stars so it can be used in function signatures
+struct Star {
+    pos: Vec2,
+    speed: f32,
+    size: f32,
+}
+
 #[derive(Serialize, Deserialize, Copy, Clone)]
 struct SerVec2 {
     x: f32,
     y: f32,
 }
 
-// Serializable Enemy
-#[derive(Serialize, Deserialize)]
-struct SerEnemy {
-    pos: SerVec2,
-    speed: f32,
-    alive: bool,
-    enemy_type: u8, // 0: normal, 1: fast, 2: tank, 3: shooter, 4: zigzag shooter
-    health: i32,
-    last_shot: f64,
+impl From<Vec2> for SerVec2 {
+    fn from(v: Vec2) -> Self {
+        SerVec2 { x: v.x, y: v.y }
+    }
+}
+impl From<SerVec2> for Vec2 {
+    fn from(v: SerVec2) -> Self {
+        vec2(v.x, v.y)
+    }
 }
 
-// Serializable Bullet
-#[derive(Serialize, Deserialize)]
-struct SerBullet {
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+enum EnemyState {
+    Spawn,
+    Cruising,
+    Attacking,
+    Retreating,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq)]
+enum EnemyType {
+    Basic,
+    Fast,
+    Tank,
+    Shooter,
+    Kamikaze,
+    Asteroid,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+struct EnemyData {
+    pos: SerVec2,
+    vel: SerVec2, // Velocity for physics
+    enemy_type: EnemyType,
+    state: EnemyState,
+    health: i32,
+    max_health: i32,
+    last_action_time: f64,
+}
+
+// Wrapper for Enemy that includes Logic (Trait Object)
+struct Enemy {
+    data: EnemyData,
+    ai: Box<dyn EnemyAi>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+struct Bullet {
     pos: SerVec2,
     vel: SerVec2,
     alive: bool,
-    bullet_type: u8, // 0: normal, 1: power-up
+    is_player: bool,
+    damage: i32,
+    grazed: bool, // To prevent double grazing points
 }
 
-// Serializable PowerUp
-#[derive(Serialize, Deserialize)]
-struct SerPowerUp {
+#[derive(Serialize, Deserialize, Clone, Copy)]
+struct PlayerState {
     pos: SerVec2,
-    speed: f32,
-    alive: bool,
-    power_type: u8, // 0: health, 1: multi shot, 2: shield
+    health: i32,
+    heat: f32,
+    overheated: bool,
+    score: i32,
+    high_score: i32,
+    combo: i32,
+    combo_timer: f32,
+    ulti_energy: f32, // 0.0 to 100.0
+    shots_fired: u32,
+    shots_hit: u32,
 }
 
-// Struktura zapisu gry
 #[derive(Serialize, Deserialize)]
 struct GameSave {
-    score: i32,
-    player_pos: SerVec2,
+    player: PlayerState,
+    enemies: Vec<EnemyData>, // Save only data, recreate AI on load
+    bullets: Vec<Bullet>,
     difficulty: f32,
-    enemies: Vec<SerEnemy>,
-    bullets: Vec<SerBullet>,
-    enemy_bullets: Vec<SerBullet>,
-    power_ups: Vec<SerPowerUp>,
-    player_health: i32,
     level: u32,
-    shot_level: u32,
-    player_shield: f64,
 }
 
-// Struktura ustawień
-#[derive(Serialize, Deserialize)]
-struct Settings {
-    difficulty: f32,
-    sound_volume: f32,
-    high_score: i32,
+struct Director {
+    difficulty_multiplier: f32,
+    spawn_timer: f32,
+    wave_active: bool,
+    last_accuracy_check: f64,
 }
 
-// Stany gry
-#[derive(PartialEq)]
-enum GameState {
-    Menu,
-    Game,
-    Settings,
-    LoadGame,
-    GameOver,
+// ==========================================
+// AI TRAIT SYSTEM
+// ==========================================
+
+trait EnemyAi {
+    fn update(&mut self, data: &mut EnemyData, player_pos: Vec2, dt: f32, bullets: &mut Vec<Bullet>);
 }
 
-// Struktura gwiazdy (dla tła)
-struct Star {
-    pos: Vec2,
-    speed: f32,
+// --- Implementations ---
+
+struct BasicAi;
+impl EnemyAi for BasicAi {
+    fn update(&mut self, data: &mut EnemyData, _player_pos: Vec2, dt: f32, _bullets: &mut Vec<Bullet>) {
+        // Simple fallback movement
+        let pos = Vec2::from(data.pos);
+        let new_pos = pos + vec2(0.0, 100.0) * dt;
+        data.pos = new_pos.into();
+    }
 }
 
-// Struktura wroga
-struct Enemy {
-    pos: Vec2,
-    speed: f32,
-    alive: bool,
-    enemy_type: u8, // 0: normal, 1: fast, 2: tank, 3: shooter, 4: zigzag shooter
-    health: i32,
-    last_shot: f64,
+struct KamikazeAi;
+impl EnemyAi for KamikazeAi {
+    fn update(&mut self, data: &mut EnemyData, player_pos: Vec2, dt: f32, _bullets: &mut Vec<Bullet>) {
+        let mut pos = Vec2::from(data.pos);
+        
+        match data.state {
+            EnemyState::Cruising => {
+                pos.y += 80.0 * dt;
+                // If close enough specifically in Y axis, switch to Attack
+                if (pos.y - player_pos.y).abs() < 300.0 && pos.y < player_pos.y {
+                    data.state = EnemyState::Attacking;
+                    // Calculate vector to player
+                    let dir = (player_pos - pos).normalize();
+                    data.vel = (dir * 400.0).into(); // Fast speed
+                }
+            },
+            EnemyState::Attacking => {
+                let vel = Vec2::from(data.vel);
+                pos += vel * dt;
+            },
+            _ => {}
+        }
+        data.pos = pos.into();
+    }
 }
 
-// Struktura pocisku
-struct Bullet {
-    pos: Vec2,
-    vel: Vec2,
-    alive: bool,
-    bullet_type: u8, // 0: normal, 1: power-up (silniejszy)
+struct ShooterAi;
+impl EnemyAi for ShooterAi {
+    fn update(&mut self, data: &mut EnemyData, player_pos: Vec2, dt: f32, bullets: &mut Vec<Bullet>) {
+        let mut pos = Vec2::from(data.pos);
+        let time = get_time();
+
+        match data.state {
+            EnemyState::Cruising => {
+                pos.y += 60.0 * dt;
+                // Hover behavior
+                pos.x += (time * 2.0 + data.pos.y as f64).sin() as f32 * 50.0 * dt;
+
+                if time - data.last_action_time > 2.0 {
+                    data.state = EnemyState::Attacking;
+                    data.last_action_time = time;
+                }
+            },
+            EnemyState::Attacking => {
+                // Shoot
+                let dir = (player_pos - pos).normalize();
+                bullets.push(Bullet {
+                    pos: pos.into(),
+                    vel: (dir * 250.0).into(),
+                    alive: true,
+                    is_player: false,
+                    damage: 1,
+                    grazed: false,
+                });
+                data.state = EnemyState::Retreating;
+                data.last_action_time = time;
+            },
+            EnemyState::Retreating => {
+                // Move up or away quickly for a second
+                pos.y -= 30.0 * dt;
+                if time - data.last_action_time > 1.0 {
+                     data.state = EnemyState::Cruising;
+                }
+            }
+            _ => {}
+        }
+        data.pos = pos.into();
+    }
 }
 
-// Struktura power-up
-struct PowerUp {
-    pos: Vec2,
-    speed: f32,
-    alive: bool,
-    power_type: u8, // 0: health, 1: multi shot, 2: shield
+struct AsteroidAi;
+impl EnemyAi for AsteroidAi {
+    fn update(&mut self, data: &mut EnemyData, _player_pos: Vec2, dt: f32, _bullets: &mut Vec<Bullet>) {
+        let mut pos = Vec2::from(data.pos);
+        pos.y += 150.0 * dt; // Fast falling debris
+        // Rotate logic could go here if we had rotation in data
+        data.pos = pos.into();
+    }
 }
 
-#[macroquad::main("StarBlaster")]
+// Factory to restore AI from Enum
+fn create_ai(e_type: EnemyType) -> Box<dyn EnemyAi> {
+    match e_type {
+        EnemyType::Kamikaze => Box::new(KamikazeAi),
+        EnemyType::Shooter => Box::new(ShooterAi),
+        EnemyType::Asteroid => Box::new(AsteroidAi),
+        _ => Box::new(BasicAi),
+    }
+}
+
+// ==========================================
+// GAME ENGINE
+// ==========================================
+
+#[macroquad::main("StarBlaster v2")]
 async fn main() {
-    // Wczytaj ustawienia
-    let mut settings = load_settings();
-    // Inicjalizacja zmiennych gry
-    let mut game_state = GameState::Menu;
-    let mut player_pos = vec2(screen_width() / 2.0, screen_height() - 50.0);
-    let mut player_health = 3;
-    let mut player_shield = 0.0f64;
-    let mut score = 0;
-    let mut enemies: Vec<Enemy> = vec![];
-    let mut bullets: Vec<Bullet> = vec![];
-    let mut enemy_bullets: Vec<Bullet> = vec![];
-    let mut power_ups: Vec<PowerUp> = vec![];
-    let mut stars: Vec<Star> = vec![];
-    let mut last_shot = get_time();
-    let mut level = 1u32;
-    let mut shot_level = 1u32;
-    let mut last_power_up = get_time();
-    let mut paused = false;
+    let mut rng = ::rand::thread_rng();
+    
+    // -- Init State --
+    let mut state = GameState::Menu;
+    let mut player = PlayerState {
+        pos: vec2(screen_width() / 2.0, screen_height() - 100.0).into(),
+        health: 5,
+        heat: 0.0,
+        overheated: false,
+        score: 0,
+        high_score: load_high_score(),
+        combo: 0,
+        combo_timer: 0.0,
+        ulti_energy: 0.0,
+        shots_fired: 0,
+        shots_hit: 0,
+    };
+
+    let mut enemies: Vec<Enemy> = Vec::new();
+    let mut bullets: Vec<Bullet> = Vec::new();
+    let mut director = Director {
+        difficulty_multiplier: 1.0,
+        spawn_timer: 0.0,
+        wave_active: false,
+        last_accuracy_check: get_time(),
+    };
+
+    // Stars background
+    let mut stars: Vec<Star> = (0..100).map(|_| Star {
+        pos: vec2(::rand::Rng::gen_range(&mut rng, 0.0..screen_width()), ::rand::Rng::gen_range(&mut rng, 0.0..screen_height())),
+        speed: ::rand::Rng::gen_range(&mut rng, 20.0..100.0),
+        size: ::rand::Rng::gen_range(&mut rng, 0.5..2.0),
+    }).collect();
+
     loop {
-        clear_background(BLACK);
-        match game_state {
+        let dt = get_frame_time();
+        let time = get_time();
+
+        match state {
             GameState::Menu => {
-                // Menu główne
-                draw_text("StarBlaster", screen_width() / 2.0 - 100.0, 100.0, 40.0, WHITE);
-                draw_text(&format!("High Score: {}", settings.high_score), screen_width() / 2.0 - 100.0, 150.0, 30.0, WHITE);
-                if draw_button("Start", screen_width() / 2.0 - 50.0, 200.0) {
-                    game_state = GameState::Game;
-                    score = 0;
-                    player_health = 3;
-                    player_shield = 0.0;
-                    enemies.clear();
-                    bullets.clear();
-                    enemy_bullets.clear();
-                    power_ups.clear();
-                    stars.clear();
-                    for _ in 0..100 {
-                        stars.push(Star {
-                            pos: vec2(::rand::Rng::gen_range(&mut ::rand::thread_rng(), 0.0..screen_width()), ::rand::Rng::gen_range(&mut ::rand::thread_rng(), 0.0..screen_height())),
-                            speed: ::rand::Rng::gen_range(&mut ::rand::thread_rng(), 50.0..150.0),
-                        });
+                clear_background(BLACK);
+                draw_stars(&mut stars, dt);
+                draw_ui_text_centered("STAR BLASTER", -50.0, 60.0, GOLD);
+                draw_ui_text_centered("Press SPACE to Start", 20.0, 30.0, WHITE);
+                draw_ui_text_centered("Press L to Load Game", 60.0, 20.0, LIGHTGRAY);
+                
+                if is_key_pressed(KeyCode::Space) {
+                    reset_game(&mut player, &mut enemies, &mut bullets, &mut director);
+                    state = GameState::Playing;
+                }
+                if is_key_pressed(KeyCode::L) {
+                    if let Some(save) = load_game() {
+                        player = save.player;
+                        bullets = save.bullets;
+                        director.difficulty_multiplier = save.difficulty;
+                        // Reconstruct AI
+                        enemies = save.enemies.into_iter().map(|d| Enemy {
+                            ai: create_ai(d.enemy_type),
+                            data: d,
+                        }).collect();
+                        state = GameState::Playing;
                     }
-                    player_pos = vec2(screen_width() / 2.0, screen_height() - 50.0);
-                    level = 1;
-                    shot_level = 1;
-                    paused = false;
                 }
-                if draw_button("Load Game", screen_width() / 2.0 - 50.0, 250.0) {
-                    game_state = GameState::LoadGame;
-                }
-                if draw_button("Settings", screen_width() / 2.0 - 50.0, 300.0) {
-                    game_state = GameState::Settings;
-                }
-                if draw_button("Exit", screen_width() / 2.0 - 50.0, 350.0) {
-                    break;
-                }
-            }
-            GameState::Game => {
-                // Rysowanie tła (gwiazdy)
-                for star in &stars {
-                    draw_circle(star.pos.x, star.pos.y, 1.0, WHITE);
+            },
+            GameState::Playing => {
+                clear_background(Color::new(0.05, 0.05, 0.1, 1.0));
+                
+                // --- Input & Player ---
+                if is_key_pressed(KeyCode::P) { state = GameState::Paused; }
+                
+                // Movement
+                let mut p_pos = Vec2::from(player.pos);
+                if is_key_down(KeyCode::Left) { p_pos.x -= PLAYER_SPEED * dt; }
+                if is_key_down(KeyCode::Right) { p_pos.x += PLAYER_SPEED * dt; }
+                if is_key_down(KeyCode::Up) { p_pos.y -= PLAYER_SPEED * dt; }
+                if is_key_down(KeyCode::Down) { p_pos.y += PLAYER_SPEED * dt; }
+                p_pos.x = p_pos.x.clamp(SCREEN_PADDING, screen_width() - SCREEN_PADDING);
+                p_pos.y = p_pos.y.clamp(SCREEN_PADDING, screen_height() - SCREEN_PADDING);
+                player.pos = p_pos.into();
+
+                // Combat
+                // Cooling
+                if player.overheated {
+                    player.heat -= COOLING_RATE * 1.5 * dt;
+                    if player.heat <= 0.0 {
+                        player.heat = 0.0;
+                        player.overheated = false;
+                    }
+                } else {
+                    player.heat -= COOLING_RATE * dt;
+                    if player.heat < 0.0 { player.heat = 0.0; }
                 }
 
-                if paused {
-                    draw_text("Paused", screen_width() / 2.0 - 50.0, screen_height() / 2.0, 40.0, WHITE);
-                    if is_key_pressed(KeyCode::P) {
-                        paused = false;
-                    }
-                    if is_key_pressed(KeyCode::Escape) {
-                        if score > settings.high_score {
-                            settings.high_score = score;
-                            save_settings(&settings);
-                        }
-                        save_game(score, player_pos, settings.difficulty, &enemies, &bullets, &enemy_bullets, &power_ups, player_health, level, shot_level, player_shield);
-                        game_state = GameState::Menu;
-                    }
-                } else {
-                    // Logika gry
-                    // Sterowanie graczem
-                    if is_key_down(KeyCode::Left) {
-                        player_pos.x -= 300.0 * get_frame_time();
-                    }
-                    if is_key_down(KeyCode::Right) {
-                        player_pos.x += 300.0 * get_frame_time();
-                    }
-                    if is_key_down(KeyCode::Up) {
-                        player_pos.y -= 300.0 * get_frame_time();
-                    }
-                    if is_key_down(KeyCode::Down) {
-                        player_pos.y += 300.0 * get_frame_time();
-                    }
-                    // Ograniczenie ruchu gracza
-                    player_pos.x = player_pos.x.clamp(0.0, screen_width() - 20.0);
-                    player_pos.y = player_pos.y.clamp(0.0, screen_height() - 20.0);
-                    // Strzelanie
-                    if is_key_down(KeyCode::Space) && get_time() - last_shot > 0.2 {
-                        let bullet_vel = vec2(0.0, -400.0);
-                        let offset_step = 10.0;
-                        let start_offset = -((shot_level - 1) as f32 * offset_step / 2.0);
-                        for i in 0..shot_level {
-                            let offset = start_offset + (i as f32) * offset_step;
-                            bullets.push(Bullet {
-                                pos: vec2(player_pos.x + offset, player_pos.y),
-                                vel: bullet_vel,
-                                alive: true,
-                                bullet_type: if shot_level > 1 { 1 } else { 0 },
-                            });
-                        }
-                        last_shot = get_time();
-                    }
-                    // Spawn wrogów
-                    let level_factor = (level as f32 / 5.0) + 1.0;
-                    let spawn_chance = 0.02 * settings.difficulty * level_factor;
-                    if ::rand::Rng::gen_range(&mut ::rand::thread_rng(), 0.0..1.0) < spawn_chance {
-                        let enemy_type = ::rand::Rng::gen_range(&mut ::rand::thread_rng(), 0..5);
-                        let base_speed = match enemy_type {
-                            1 => 150.0,
-                            3 => 80.0,
-                            4 => 100.0,
-                            _ => 100.0,
-                        };
-                        let speed = base_speed * settings.difficulty * (level as f32 / 10.0 + 1.0);
-                        let health = match enemy_type {
-                            2 => 3,
-                            3 => 2,
-                            4 => 2,
-                            _ => 1,
-                        };
-                        enemies.push(Enemy {
-                            pos: vec2(::rand::Rng::gen_range(&mut ::rand::thread_rng(), 0.0..screen_width()), 0.0),
-                            speed,
-                            alive: true,
-                            enemy_type,
-                            health,
-                            last_shot: if enemy_type == 3 || enemy_type == 4 { get_time() } else { 0.0 },
-                        });
-                    }
-                    // Spawn power-upów
-                    if get_time() - last_power_up > 10.0 && ::rand::Rng::gen_range(&mut ::rand::thread_rng(), 0.0..1.0) < 0.005 {
-                        let power_type = ::rand::Rng::gen_range(&mut ::rand::thread_rng(), 0..3);
-                        power_ups.push(PowerUp {
-                            pos: vec2(::rand::Rng::gen_range(&mut ::rand::thread_rng(), 0.0..screen_width()), 0.0),
-                            speed: 80.0,
-                            alive: true,
-                            power_type,
-                        });
-                        last_power_up = get_time();
-                    }
-                    // Aktualizacja tła (gwiazdy)
-                    for star in &mut stars {
-                        star.pos.y += star.speed * get_frame_time();
-                        if star.pos.y > screen_height() {
-                            star.pos.y = 0.0;
-                            star.pos.x = ::rand::Rng::gen_range(&mut ::rand::thread_rng(), 0.0..screen_width());
-                        }
-                    }
-                    // Aktualizacja pocisków gracza
-                    let mut bullets_to_kill: Vec<usize> = vec![];
-                    for (i, bullet) in bullets.iter_mut().enumerate() {
-                        if bullet.alive {
-                            bullet.pos += bullet.vel * get_frame_time();
-                            if bullet.pos.y < 0.0 || bullet.pos.y > screen_height() || bullet.pos.x < 0.0 || bullet.pos.x > screen_width() {
-                                bullets_to_kill.push(i);
-                            }
-                        }
-                    }
-                    // Aktualizacja pocisków wrogów
-                    let mut enemy_bullets_to_kill: Vec<usize> = vec![];
-                    for (i, bullet) in enemy_bullets.iter_mut().enumerate() {
-                        if bullet.alive {
-                            bullet.pos += bullet.vel * get_frame_time();
-                            if bullet.pos.y < 0.0 || bullet.pos.y > screen_height() || bullet.pos.x < 0.0 || bullet.pos.x > screen_width() {
-                                enemy_bullets_to_kill.push(i);
-                            }
-                        }
-                    }
-                    // Aktualizacja wrogów
-                    let mut enemies_to_kill: Vec<usize> = vec![];
-                    for (i, enemy) in enemies.iter_mut().enumerate() {
-                        if enemy.alive {
-                            enemy.pos.y += enemy.speed * get_frame_time();
-                            if enemy.enemy_type == 4 {
-                                enemy.pos.x += (enemy.pos.y / 20.0).sin() * 100.0 * get_frame_time();
-                                enemy.pos.x = enemy.pos.x.clamp(0.0, screen_width() - 20.0);
-                            }
-                            if enemy.pos.y > screen_height() {
-                                enemies_to_kill.push(i);
-                            }
-                            if (enemy.enemy_type == 3 || enemy.enemy_type == 4) && get_time() - enemy.last_shot > 1.5 - ((level as f64 / 20.0).min(1.0)) {
-                                let direction = (player_pos - enemy.pos).normalize_or_zero();
-                                let bullet_speed = 200.0 * settings.difficulty * (level as f32 / 10.0 + 1.0);
-                                enemy_bullets.push(Bullet {
-                                    pos: enemy.pos + vec2(10.0, 10.0),
-                                    vel: direction * bullet_speed,
+                // Shooting
+                if is_key_down(KeyCode::Space) && !player.overheated {
+                    // Simple fire rate limiter via frame check or timer could be added
+                    // For now, let's assume rapid fire but limited by heat
+                    if player.heat + HEAT_PER_SHOT < MAX_HEAT {
+                        if get_frame_time() > 0.0 { // Just to ensure we don't spam in one frame logic
+                            // Basic fire rate limiter
+                             if (time * 10.0) as i32 % 2 == 0 {
+                                bullets.push(Bullet {
+                                    pos: p_pos.into(),
+                                    vel: vec2(0.0, -600.0).into(),
                                     alive: true,
-                                    bullet_type: 0,
+                                    is_player: true,
+                                    damage: 1,
+                                    grazed: false,
                                 });
-                                enemy.last_shot = get_time();
+                                player.heat += HEAT_PER_SHOT;
+                                player.shots_fired += 1;
+                             }
+                        }
+                    } else {
+                        player.overheated = true;
+                        // Play overheat sound?
+                    }
+                }
+
+                // ULT
+                if is_key_pressed(KeyCode::LeftShift) && player.ulti_energy >= 100.0 {
+                    player.ulti_energy = 0.0;
+                    // Screen clear logic
+                    for e in &mut enemies {
+                        e.data.health -= 10; // Massive damage
+                    }
+                    bullets.retain(|b| b.is_player); // Clear enemy bullets
+                    // Visual effect placeholder
+                    draw_circle(screen_width()/2.0, screen_height()/2.0, 500.0, Color::new(1.0, 1.0, 1.0, 0.5));
+                }
+
+                // --- Updates ---
+                draw_stars(&mut stars, dt);
+
+                // Director AI Update
+                update_director(&mut director, &mut enemies, &player, dt);
+
+                // Bullets
+                for b in &mut bullets {
+                    let b_pos = Vec2::from(b.pos);
+                    let b_vel = Vec2::from(b.vel);
+                    b.pos = (b_pos + b_vel * dt).into();
+                    
+                    if b_pos.y < -50.0 || b_pos.y > screen_height() + 50.0 {
+                        b.alive = false;
+                    }
+                }
+
+                // Enemies
+                for e in &mut enemies {
+                    e.ai.update(&mut e.data, p_pos, dt, &mut bullets);
+                }
+
+                // --- Collisions & Logic ---
+                
+                // Player Bullets vs Enemies
+                for b in &mut bullets {
+                    if !b.alive || !b.is_player { continue; }
+                    let b_pos = Vec2::from(b.pos);
+                    
+                    for e in &mut enemies {
+                        let e_pos = Vec2::from(e.data.pos);
+                        if e.data.health > 0 && b_pos.distance(e_pos) < 25.0 {
+                            e.data.health -= b.damage;
+                            b.alive = false;
+                            player.shots_hit += 1;
+                            
+                            if e.data.health <= 0 {
+                                // Kill logic
+                                player.combo += 1;
+                                player.combo_timer = COMBO_DECAY;
+                                let multiplier = 1.0 + (player.combo as f32 * 0.1);
+                                player.score += (100.0 * multiplier) as i32;
+                                player.ulti_energy = (player.ulti_energy + 5.0).min(100.0);
                             }
+                            break; 
                         }
                     }
-                    // Aktualizacja power-upów
-                    let mut power_ups_to_kill = vec![];
-                    for (i, power_up) in power_ups.iter_mut().enumerate() {
-                        if power_up.alive {
-                            power_up.pos.y += power_up.speed * get_frame_time();
-                            if power_up.pos.y > screen_height() {
-                                power_ups_to_kill.push(i);
-                            }
+                }
+
+                // Enemy Bullets vs Player (Hit & Graze)
+                for b in &mut bullets {
+                    if !b.alive || b.is_player { continue; }
+                    let b_pos = Vec2::from(b.pos);
+                    let dist = b_pos.distance(p_pos);
+
+                    if dist < 10.0 {
+                        // HIT
+                        player.health -= 1;
+                        b.alive = false;
+                        player.combo = 0;
+                        player.heat = (player.heat - 50.0).max(0.0); // Cool down on hit?
+                        if player.health <= 0 {
+                            save_high_score(player.score.max(player.high_score));
+                            state = GameState::GameOver;
+                        }
+                    } else if dist < GRAZE_DISTANCE && !b.grazed {
+                        // GRAZE
+                        b.grazed = true;
+                        player.score += 50;
+                        player.ulti_energy = (player.ulti_energy + 1.0).min(100.0);
+                        // Optional visual for graze
+                        draw_circle_lines(p_pos.x, p_pos.y, GRAZE_DISTANCE, 1.0, GOLD);
+                    }
+                }
+
+                // Enemy Body vs Player
+                for e in &mut enemies {
+                    let e_pos = Vec2::from(e.data.pos);
+                    if e.data.health > 0 && e_pos.distance(p_pos) < 30.0 {
+                        player.health -= 1;
+                        e.data.health = 0; // Kamikaze impact kills enemy
+                        player.combo = 0;
+                        if player.health <= 0 {
+                            save_high_score(player.score.max(player.high_score));
+                            state = GameState::GameOver;
                         }
                     }
-                    // Kolizje pocisków gracza z wrogami
-                    let mut collisions = vec![];
-                    for (b_idx, bullet) in bullets.iter().enumerate() {
-                        if bullet.alive {
-                            for (e_idx, enemy) in enemies.iter_mut().enumerate() {
-                                if enemy.alive && (bullet.pos - enemy.pos).length() < 20.0 {
-                                    let damage = if bullet.bullet_type == 1 { 2 } else { 1 };
-                                    enemy.health -= damage;
-                                    if enemy.health <= 0 {
-                                        collisions.push((b_idx, e_idx));
-                                        score += 10 * (enemy.enemy_type as i32 + 1);
-                                    } else {
-                                        bullets_to_kill.push(b_idx);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    for (b_idx, e_idx) in collisions {
-                        bullets[b_idx].alive = false;
-                        enemies[e_idx].alive = false;
-                    }
-                    // Kolizje pocisków wrogów z graczem
-                    let mut player_hit_by_bullet = false;
-                    for (i, bullet) in enemy_bullets.iter().enumerate() {
-                        if bullet.alive && (player_pos - bullet.pos).length() < 15.0 {
-                            enemy_bullets_to_kill.push(i);
-                            player_hit_by_bullet = true;
-                        }
-                    }
-                    if player_hit_by_bullet && get_time() > player_shield {
-                        player_health -= 1;
-                        if player_health <= 0 {
-                            if score > settings.high_score {
-                                settings.high_score = score;
-                                save_settings(&settings);
-                            }
-                            save_game(score, player_pos, settings.difficulty, &enemies, &bullets, &enemy_bullets, &power_ups, player_health, level, shot_level, player_shield);
-                            game_state = GameState::GameOver;
-                        }
-                    }
-                    // Kolizje gracza z wrogami
-                    let mut player_hit = false;
-                    for (i, enemy) in enemies.iter().enumerate() {
-                        if enemy.alive && (player_pos - enemy.pos).length() < 20.0 {
-                            enemies_to_kill.push(i);
-                            player_hit = true;
-                        }
-                    }
-                    if player_hit && get_time() > player_shield {
-                        player_health -= 1;
-                        if player_health <= 0 {
-                            if score > settings.high_score {
-                                settings.high_score = score;
-                                save_settings(&settings);
-                            }
-                            save_game(score, player_pos, settings.difficulty, &enemies, &bullets, &enemy_bullets, &power_ups, player_health, level, shot_level, player_shield);
-                            game_state = GameState::GameOver;
-                        }
-                    }
-                    // Kolizje gracza z power-upami
-                    for (i, power_up) in power_ups.iter().enumerate() {
-                        if power_up.alive && (player_pos - power_up.pos).length() < 20.0 {
-                            power_ups_to_kill.push(i);
-                            match power_up.power_type {
-                                0 => player_health = (player_health + 1).min(5),
-                                1 => shot_level = (shot_level + 1).min(5),
-                                2 => player_shield = get_time() + 10.0,
-                                _ => {},
-                            }
-                        }
-                    }
-                    // Postęp levelu
-                    if score > (level as i32 * 100) {
-                        level += 1;
-                    }
-                    // Usuwanie martwych obiektów
-                    for &i in bullets_to_kill.iter().rev() {
-                        bullets[i].alive = false;
-                    }
-                    for &i in enemy_bullets_to_kill.iter().rev() {
-                        enemy_bullets[i].alive = false;
-                    }
-                    for &i in enemies_to_kill.iter().rev() {
-                        enemies[i].alive = false;
-                    }
-                    for &i in power_ups_to_kill.iter().rev() {
-                        power_ups[i].alive = false;
-                    }
-                    bullets.retain(|b| b.alive);
-                    enemy_bullets.retain(|b| b.alive);
-                    enemies.retain(|e| e.alive);
-                    power_ups.retain(|p| p.alive);
-                    // Pauza
-                    if is_key_pressed(KeyCode::P) {
-                        paused = true;
+                }
+
+                // Combo Decay
+                if player.combo > 0 {
+                    player.combo_timer -= dt;
+                    if player.combo_timer <= 0.0 {
+                        player.combo = 0;
                     }
                 }
-                // Rysowanie
-                draw_rectangle(player_pos.x, player_pos.y, 20.0, 20.0, GREEN); // Gracz
-                if get_time() < player_shield {
-                    draw_circle_lines(player_pos.x + 10.0, player_pos.y + 10.0, 15.0, 2.0, SKYBLUE);
+
+                // Cleanup
+                bullets.retain(|b| b.alive);
+                enemies.retain(|e| e.data.health > 0 && Vec2::from(e.data.pos).y < screen_height() + 100.0);
+
+                // --- Drawing ---
+                // Player
+                draw_poly(p_pos.x, p_pos.y, 3, 20.0, 0.0, if player.overheated { RED } else { GREEN });
+                // Heat bar
+                draw_rect_bar(p_pos.x - 20.0, p_pos.y + 25.0, 40.0, 5.0, player.heat / MAX_HEAT, ORANGE);
+
+                // Enemies
+                for e in &enemies {
+                    let pos = Vec2::from(e.data.pos);
+                    let color = match e.data.enemy_type {
+                        EnemyType::Kamikaze => RED,
+                        EnemyType::Shooter => PURPLE,
+                        EnemyType::Asteroid => GRAY,
+                        _ => YELLOW,
+                    };
+                    draw_poly(pos.x, pos.y, 4, 15.0, 45.0, color);
                 }
-                for bullet in bullets.iter() {
-                    if bullet.alive {
-                        draw_circle(bullet.pos.x, bullet.pos.y, 5.0, if bullet.bullet_type == 1 { ORANGE } else { YELLOW });
-                    }
+
+                // Bullets
+                for b in &bullets {
+                    let pos = Vec2::from(b.pos);
+                    draw_circle(pos.x, pos.y, 4.0, if b.is_player { CYAN } else { PINK });
                 }
-                for bullet in enemy_bullets.iter() {
-                    if bullet.alive {
-                        draw_circle(bullet.pos.x, bullet.pos.y, 5.0, RED);
-                    }
+
+                // UI
+                draw_hud(&player, &director);
+
+            },
+            GameState::Paused => {
+                draw_ui_text_centered("PAUSED", 0.0, 60.0, WHITE);
+                draw_ui_text_centered("Press P to Resume", 40.0, 30.0, GRAY);
+                draw_ui_text_centered("Press S to Save & Exit", 80.0, 30.0, GRAY);
+
+                if is_key_pressed(KeyCode::P) { state = GameState::Playing; }
+                if is_key_pressed(KeyCode::S) {
+                    save_game(&GameSave {
+                        player: player, // player is consumed here if not Copy, but struct fields are simple
+                        // Manual copy needed due to structure complexity with serialization vs runtime
+                        // Actually, Serde structs match.
+                        enemies: enemies.iter().map(|e| e.data.clone()).collect(),
+                        bullets: bullets.clone(),
+                        difficulty: director.difficulty_multiplier,
+                        level: 1,
+                    });
+                    state = GameState::Menu;
                 }
-                for enemy in enemies.iter() {
-                    if enemy.alive {
-                        let color = match enemy.enemy_type {
-                            1 => BLUE, // Fast
-                            2 => PURPLE, // Tank
-                            3 => ORANGE, // Shooter
-                            4 => YELLOW, // Zigzag shooter
-                            _ => RED, // Normal
-                        };
-                        draw_rectangle(enemy.pos.x, enemy.pos.y, 20.0, 20.0, color);
-                    }
-                }
-                for power_up in power_ups.iter() {
-                    if power_up.alive {
-                        let color = match power_up.power_type {
-                            0 => GREEN, // Health
-                            1 => GOLD, // Multi shot
-                            2 => SKYBLUE, // Shield
-                            _ => WHITE,
-                        };
-                        draw_circle(power_up.pos.x, power_up.pos.y, 10.0, color);
-                    }
-                }
-                draw_text(&format!("Score: {}", score), 10.0, 20.0, 20.0, WHITE);
-                draw_text(&format!("Health: {}", player_health), 10.0, 40.0, 20.0, WHITE);
-                draw_text(&format!("Level: {}", level), 10.0, 60.0, 20.0, WHITE);
-                // Powrót do menu
-                if is_key_pressed(KeyCode::Escape) {
-                    if score > settings.high_score {
-                        settings.high_score = score;
-                        save_settings(&settings);
-                    }
-                    save_game(score, player_pos, settings.difficulty, &enemies, &bullets, &enemy_bullets, &power_ups, player_health, level, shot_level, player_shield);
-                    game_state = GameState::Menu;
-                }
-            }
-            GameState::Settings => {
-                // Ustawienia
-                draw_text("Settings", screen_width() / 2.0 - 50.0, 100.0, 40.0, WHITE);
-                draw_text(
-                    &format!("Difficulty: {:.1}", settings.difficulty),
-                    screen_width() / 2.0 - 50.0,
-                    200.0,
-                    20.0,
-                    WHITE,
-                );
-                if draw_button("+", screen_width() / 2.0 + 50.0, 200.0) {
-                    settings.difficulty += 0.1;
-                }
-                if draw_button("-", screen_width() / 2.0 - 70.0, 200.0) {
-                    settings.difficulty -= 0.1;
-                    settings.difficulty = settings.difficulty.max(0.5);
-                }
-                draw_text(
-                    &format!("Sound Volume: {:.1}", settings.sound_volume),
-                    screen_width() / 2.0 - 50.0,
-                    250.0,
-                    20.0,
-                    WHITE,
-                );
-                if draw_button("+", screen_width() / 2.0 + 50.0, 250.0) {
-                    settings.sound_volume += 0.1;
-                    settings.sound_volume = settings.sound_volume.min(1.0);
-                }
-                if draw_button("-", screen_width() / 2.0 - 70.0, 250.0) {
-                    settings.sound_volume -= 0.1;
-                    settings.sound_volume = settings.sound_volume.max(0.0);
-                }
-                if draw_button("Back", screen_width() / 2.0 - 50.0, 300.0) {
-                    save_settings(&settings);
-                    game_state = GameState::Menu;
-                }
-            }
-            GameState::LoadGame => {
-                // Wczytywanie gry
-                draw_text("Load Game", screen_width() / 2.0 - 50.0, 100.0, 40.0, WHITE);
-                if let Some(save) = load_game() {
-                    draw_text(
-                        &format!("Score: {}, Health: {}, Level: {}, Difficulty: {:.1}", save.score, save.player_health, save.level, save.difficulty),
-                        screen_width() / 2.0 - 100.0,
-                        200.0,
-                        20.0,
-                        WHITE,
-                    );
-                    if draw_button("Load", screen_width() / 2.0 - 50.0, 250.0) {
-                        score = save.score;
-                        player_pos = vec2(save.player_pos.x, save.player_pos.y);
-                        settings.difficulty = save.difficulty;
-                        player_health = save.player_health;
-                        level = save.level;
-                        shot_level = save.shot_level;
-                        player_shield = save.player_shield;
-                        enemies = save.enemies.into_iter().map(|se| Enemy {
-                            pos: vec2(se.pos.x, se.pos.y),
-                            speed: se.speed,
-                            alive: se.alive,
-                            enemy_type: se.enemy_type,
-                            health: se.health,
-                            last_shot: se.last_shot,
-                        }).collect();
-                        bullets = save.bullets.into_iter().map(|sb| Bullet {
-                            pos: vec2(sb.pos.x, sb.pos.y),
-                            vel: vec2(sb.vel.x, sb.vel.y),
-                            alive: sb.alive,
-                            bullet_type: sb.bullet_type,
-                        }).collect();
-                        enemy_bullets = save.enemy_bullets.into_iter().map(|sb| Bullet {
-                            pos: vec2(sb.pos.x, sb.pos.y),
-                            vel: vec2(sb.vel.x, sb.vel.y),
-                            alive: sb.alive,
-                            bullet_type: sb.bullet_type,
-                        }).collect();
-                        power_ups = save.power_ups.into_iter().map(|sp| PowerUp {
-                            pos: vec2(sp.pos.x, sp.pos.y),
-                            speed: sp.speed,
-                            alive: sp.alive,
-                            power_type: sp.power_type,
-                        }).collect();
-                        stars.clear();
-                        for _ in 0..100 {
-                            stars.push(Star {
-                                pos: vec2(::rand::Rng::gen_range(&mut ::rand::thread_rng(), 0.0..screen_width()), ::rand::Rng::gen_range(&mut ::rand::thread_rng(), 0.0..screen_height())),
-                                speed: ::rand::Rng::gen_range(&mut ::rand::thread_rng(), 50.0..150.0),
-                            });
-                        }
-                        game_state = GameState::Game;
-                    }
-                } else {
-                    draw_text("No save found!", screen_width() / 2.0 - 50.0, 200.0, 20.0, WHITE);
-                }
-                if draw_button("Back", screen_width() / 2.0 - 50.0, 300.0) {
-                    game_state = GameState::Menu;
-                }
-            }
+            },
             GameState::GameOver => {
-                draw_text("Game Over", screen_width() / 2.0 - 100.0, 100.0, 40.0, RED);
-                draw_text(&format!("Score: {}", score), screen_width() / 2.0 - 50.0, 150.0, 30.0, WHITE);
-                draw_text(&format!("High Score: {}", settings.high_score), screen_width() / 2.0 - 100.0, 200.0, 30.0, WHITE);
-                if draw_button("Back to Menu", screen_width() / 2.0 - 70.0, 250.0) {
-                    game_state = GameState::Menu;
-                }
+                draw_ui_text_centered("GAME OVER", -20.0, 60.0, RED);
+                draw_ui_text_centered(&format!("Final Score: {}", player.score), 40.0, 40.0, WHITE);
+                draw_ui_text_centered("Press SPACE for Menu", 80.0, 20.0, GRAY);
+
+                if is_key_pressed(KeyCode::Space) { state = GameState::Menu; }
             }
         }
         next_frame().await;
     }
 }
 
-// Funkcja do rysowania przycisku
-fn draw_button(text: &str, x: f32, y: f32) -> bool {
-    let text_width = measure_text(text, None, 20, 1.0).width;
-    let rect_width = text_width + 20.0;
-    let rect_height = 30.0;
-    let mouse_pos = mouse_position();
-    let is_hovered = mouse_pos.0 > x && mouse_pos.0 < x + rect_width && mouse_pos.1 > y && mouse_pos.1 < y + rect_height;
-    draw_rectangle(x, y, rect_width, rect_height, if is_hovered { GRAY } else { DARKGRAY });
-    draw_text(text, x + 10.0, y + 20.0, 20.0, WHITE);
-    is_hovered && is_mouse_button_pressed(MouseButton::Left)
+// ==========================================
+// DIRECTOR & LOGIC
+// ==========================================
+
+fn update_director(director: &mut Director, enemies: &mut Vec<Enemy>, player: &PlayerState, dt: f32) {
+    let time = get_time();
+    
+    // Dynamic Difficulty Check (every 5 seconds)
+    if time - director.last_accuracy_check > 5.0 {
+        director.last_accuracy_check = time;
+        let accuracy = if player.shots_fired > 0 { player.shots_hit as f32 / player.shots_fired as f32 } else { 0.0 };
+        
+        // If playing well (high hp, high accuracy), increase difficulty
+        if player.health > 3 && accuracy > 0.4 {
+            director.difficulty_multiplier += 0.1;
+        } else if player.health < 2 {
+            director.difficulty_multiplier = (director.difficulty_multiplier - 0.1).max(0.5);
+        }
+    }
+
+    // Spawning Logic
+    director.spawn_timer -= dt;
+    if director.spawn_timer <= 0.0 {
+        let rng_val = ::rand::random::<f32>();
+        
+        if rng_val < 0.1 * director.difficulty_multiplier {
+            // Event: Asteroid Field
+            spawn_formation(enemies, EnemyType::Asteroid, 5);
+            director.spawn_timer = 4.0;
+        } else if rng_val < 0.4 {
+            // Formation V
+            spawn_formation(enemies, EnemyType::Basic, 3);
+            director.spawn_timer = 2.0 / director.difficulty_multiplier;
+        } else if rng_val < 0.6 {
+            // Shooters
+             spawn_enemy(enemies, EnemyType::Shooter, vec2(::rand::random::<f32>() * screen_width(), -50.0));
+             director.spawn_timer = 1.5 / director.difficulty_multiplier;
+        } else {
+            // Kamikaze
+            spawn_enemy(enemies, EnemyType::Kamikaze, vec2(::rand::random::<f32>() * screen_width(), -50.0));
+            director.spawn_timer = 1.0 / director.difficulty_multiplier;
+        }
+    }
 }
 
-// Funkcja zapisu gry
-fn save_game(score: i32, player_pos: Vec2, difficulty: f32, enemies: &Vec<Enemy>, bullets: &Vec<Bullet>, enemy_bullets: &Vec<Bullet>, power_ups: &Vec<PowerUp>, player_health: i32, level: u32, shot_level: u32, player_shield: f64) {
-    let save = GameSave {
-        score,
-        player_pos: SerVec2 { x: player_pos.x, y: player_pos.y },
-        difficulty,
-        enemies: enemies.iter().map(|e| SerEnemy {
-            pos: SerVec2 { x: e.pos.x, y: e.pos.y },
-            speed: e.speed,
-            alive: e.alive,
-            enemy_type: e.enemy_type,
-            health: e.health,
-            last_shot: e.last_shot,
-        }).collect(),
-        bullets: bullets.iter().map(|b| SerBullet {
-            pos: SerVec2 { x: b.pos.x, y: b.pos.y },
-            vel: SerVec2 { x: b.vel.x, y: b.vel.y },
-            alive: b.alive,
-            bullet_type: b.bullet_type,
-        }).collect(),
-        enemy_bullets: enemy_bullets.iter().map(|b| SerBullet {
-            pos: SerVec2 { x: b.pos.x, y: b.pos.y },
-            vel: SerVec2 { x: b.vel.x, y: b.vel.y },
-            alive: b.alive,
-            bullet_type: b.bullet_type,
-        }).collect(),
-        power_ups: power_ups.iter().map(|p| SerPowerUp {
-            pos: SerVec2 { x: p.pos.x, y: p.pos.y },
-            speed: p.speed,
-            alive: p.alive,
-            power_type: p.power_type,
-        }).collect(),
-        player_health,
-        level,
-        shot_level,
-        player_shield,
+fn spawn_enemy(enemies: &mut Vec<Enemy>, e_type: EnemyType, pos: Vec2) {
+    let health = match e_type {
+        EnemyType::Asteroid => 999,
+        EnemyType::Tank => 5,
+        _ => 2,
     };
-    let serialized = serde_json::to_string(&save).unwrap();
-    fs::write("save.json", serialized).unwrap_or(());
+    
+    enemies.push(Enemy {
+        ai: create_ai(e_type),
+        data: EnemyData {
+            pos: pos.into(),
+            vel: vec2(0.0, 0.0).into(),
+            enemy_type: e_type,
+            state: EnemyState::Cruising,
+            health,
+            max_health: health,
+            last_action_time: get_time(),
+        }
+    });
 }
 
-// Funkcja wczytywania gry
+fn spawn_formation(enemies: &mut Vec<Enemy>, e_type: EnemyType, count: i32) {
+    let center_x = ::rand::random::<f32>() * (screen_width() - 100.0) + 50.0;
+    for i in 0..count {
+        let offset_x = (i as f32 - (count as f32 / 2.0)) * 40.0;
+        let offset_y = offset_x.abs(); // V-Shape
+        spawn_enemy(enemies, e_type, vec2(center_x + offset_x, -50.0 - offset_y));
+    }
+}
+
+// ==========================================
+// HELPERS & UI
+// ==========================================
+
+enum GameState { Menu, Playing, Paused, GameOver }
+
+fn draw_stars(stars: &mut Vec<Star>, dt: f32) {
+    for star in stars {
+        star.pos.y += star.speed * dt;
+        if star.pos.y > screen_height() {
+            star.pos.y = 0.0;
+            star.pos.x = ::rand::random::<f32>() * screen_width();
+        }
+        draw_circle(star.pos.x, star.pos.y, star.size, WHITE);
+    }
+}
+
+fn draw_hud(player: &PlayerState, director: &Director) {
+    // Top Left: Score & Multiplier
+    draw_text(&format!("SCORE: {:06}", player.score), 20.0, 30.0, 30.0, WHITE);
+    if player.combo > 1 {
+        let scale = 1.0 + (player.combo as f32 * 0.1).min(1.0);
+        draw_text(&format!("x{} COMBO!", player.combo), 20.0, 60.0, 20.0 * scale, GOLD);
+        draw_rect_bar(20.0, 70.0, 100.0, 5.0, player.combo_timer / COMBO_DECAY, GOLD);
+    }
+
+    // Top Right: Health
+    let hp_text = format!("HP: {}", player.health);
+    let text_w = measure_text(&hp_text, None, 30, 1.0).width;
+    draw_text(&hp_text, screen_width() - text_w - 20.0, 30.0, 30.0, if player.health < 2 { RED } else { GREEN });
+
+    // Bottom Left: Ulti
+    draw_text("ULTIMATE", 20.0, screen_height() - 40.0, 20.0, if player.ulti_energy >= 100.0 { CYAN } else { GRAY });
+    draw_rect_bar(20.0, screen_height() - 30.0, 200.0, 10.0, player.ulti_energy / 100.0, CYAN);
+
+    // Bottom Right: Difficulty
+    draw_text(&format!("DANGER: {:.1}", director.difficulty_multiplier), screen_width() - 150.0, screen_height() - 20.0, 20.0, RED);
+}
+
+fn draw_rect_bar(x: f32, y: f32, w: f32, h: f32, pct: f32, color: Color) {
+    draw_rectangle(x, y, w, h, DARKGRAY);
+    draw_rectangle(x, y, w * pct.clamp(0.0, 1.0), h, color);
+}
+
+fn draw_ui_text_centered(text: &str, y_offset: f32, size: f32, color: Color) {
+    let dims = measure_text(text, None, size as u16, 1.0);
+    draw_text(text, screen_width() / 2.0 - dims.width / 2.0, screen_height() / 2.0 + y_offset, size, color);
+}
+
+fn reset_game(p: &mut PlayerState, e: &mut Vec<Enemy>, b: &mut Vec<Bullet>, d: &mut Director) {
+    *p = PlayerState {
+        pos: vec2(screen_width() / 2.0, screen_height() - 100.0).into(),
+        health: 5,
+        heat: 0.0,
+        overheated: false,
+        score: 0,
+        high_score: load_high_score(),
+        combo: 0,
+        combo_timer: 0.0,
+        ulti_energy: 0.0,
+        shots_fired: 0,
+        shots_hit: 0,
+    };
+    e.clear();
+    b.clear();
+    d.difficulty_multiplier = 1.0;
+    d.spawn_timer = 0.0;
+}
+
+// ==========================================
+// PERSISTENCE
+// ==========================================
+
+fn save_game(save: &GameSave) {
+    if let Ok(json) = serde_json::to_string(save) {
+        let _ = fs::write("savegame.json", json);
+    }
+}
+
 fn load_game() -> Option<GameSave> {
-    if let Ok(data) = fs::read_to_string("save.json") {
+    if let Ok(data) = fs::read_to_string("savegame.json") {
         serde_json::from_str(&data).ok()
     } else {
         None
     }
 }
 
-// Funkcja zapisu ustawień
-fn save_settings(settings: &Settings) {
-    let serialized = serde_json::to_string(settings).unwrap();
-    fs::write("settings.json", serialized).unwrap_or(());
+fn save_high_score(score: i32) {
+    let _ = fs::write("highscore.txt", score.to_string());
 }
 
-// Funkcja wczytywania ustawień
-fn load_settings() -> Settings {
-    if let Ok(data) = fs::read_to_string("settings.json") {
-        serde_json::from_str(&data).unwrap_or(Settings {
-            difficulty: 1.0,
-            sound_volume: 0.5,
-            high_score: 0,
-        })
-    } else {
-        Settings {
-            difficulty: 1.0,
-            sound_volume: 0.5,
-            high_score: 0,
-        }
-    }
+fn load_high_score() -> i32 {
+    fs::read_to_string("highscore.txt").unwrap_or("0".to_string()).parse().unwrap_or(0)
 }
