@@ -1,10 +1,11 @@
 // cargo
-// python3.13
 // love
 // odin
+// npm
 
 > cd the-racer && odin build . && cd ..
 > cd bit-jump && tar && sudo mv && cd ..
 > cd starblaster && cargo build --release && cd ..
+> cd bark-squadron && npm run dist
 > cd app && cargo build --release
   
