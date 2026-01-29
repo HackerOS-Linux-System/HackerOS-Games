@@ -1,30 +1,21 @@
-import { GoogleGenAI } from "@google/genai";
-
-const getClient = () => {
-  const apiKey = process.env.API_KEY;
-  if (!apiKey) return null;
-  return new GoogleGenAI({ apiKey });
-};
+// Local briefing service to replace API dependency
+const BRIEFINGS = [
+  "Commander Bark! The Meow Luftwaffe is stealing our bones. Intercept them!",
+"Squirrel Squadron spotted over the Atlantic. Try not to get distracted!",
+"Enemy Ace 'Red Laser' is inbound. He's fast, but you're a good boy.",
+"Protect the fire hydrants at all costs. Scramble!",
+"Intelligence reports a large shipment of catnip. Shoot it down!",
+"They called you a 'Bad Dog'. Show them who's a Good Boy.",
+"Wave incoming! Remember: Aim for the tail!",
+"Dogfight Night protocol engaged. Bark loud, bite hard.",
+"The postman has joined the enemy fleet. This is personal.",
+"Tailwinds are strong today. Use the clouds for cover!"
+];
 
 export const generateBriefing = async (wave: number, score: number): Promise<string> => {
-  const ai = getClient();
-  if (!ai) {
-    return `Mission Briefing: Wave ${wave}. Enemy squadron incoming. Engage at will. Good luck, pilot!`;
-  }
+  // Simulate a short "decoding" delay for effect
+  await new Promise(resolve => setTimeout(resolve, 800));
 
-  try {
-    const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
-      contents: `Generate a short, intense, and slightly funny military-style mission briefing for a dogfight game involving dogs flying WW1 airplanes.
-      The player is "Commander Bark".
-      Current Wave: ${wave}.
-      Previous Score: ${score}.
-      The enemy is the "Meow Luftwaffe" or "Squirrel Squadron".
-      Keep it under 30 words.`,
-    });
-    return response.text || "Communication jammed. Scramble fighters!";
-  } catch (error) {
-    console.error("Gemini briefing failed:", error);
-    return `Priority Message: Wave ${wave} inbound. Defend the fire hydrant!`;
-  }
+  const randomMsg = BRIEFINGS[Math.floor(Math.random() * BRIEFINGS.length)];
+  return `Wave ${wave} // ${randomMsg}`;
 };
