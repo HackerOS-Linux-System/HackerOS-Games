@@ -1,3 +1,6 @@
 // curl
+// tar
 
->
+> sudo wget -P /tmp https://github.com/HackerOS-Linux-System/HackerOS-Games/releases/download/v0.7/HackerOS-Games-Addons.tar.gz
+> sudo tar -xzf /tmp/HackerOS-Games-Addons.tar.gz -C /usr/share/HackerOS/Scripts/HackerOS-Games/
+> sudo chmod a+x /usr/share/HackerOS/Scripts/HackerOS-Games/*
