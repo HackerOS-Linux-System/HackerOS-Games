@@ -3,9 +3,9 @@
 // odin
 // npm
 
-> cd the-racer && odin build . && cd ..
+> cd the-racer && cargo build --release && cd ..
 > cd bit-jump && tar && sudo mv && cd ..
 > cd starblaster && cargo build --release && cd ..
-> cd bark-squadron && npm run dist
-> cd app && npm run dist
+> cd bark-squadron && npm run dist && cd ..
+> cd app && npm run build
   
