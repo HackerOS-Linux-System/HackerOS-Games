@@ -1,21 +1,36 @@
 export interface GameConfig {
-    id: string;
-    name: string;
-    description: string;
-    path: string;
-    color: string; // Hex code
-    twColor: string; // Tailwind class equivalent for borders/text
-    twBg: string; // Tailwind class for buttons
-    icon?: string; // Path to icon image
+  id: string;
+  name: string;
+  description: string;
+  longDescription: string;
+  color: string;
+  rgb: string;
+  icon: string;
+  genre: string;
+  version: string;
+  available: boolean;
 }
 
-export interface ElectronAPI {
-    launchGame: (gameId: string) => Promise<{ success: true }>;
-    checkGameExists: (gameId: string) => Promise<boolean>;
+export interface GamePlaytime {
+  game_id: string;
+  total_seconds: number;
+  last_played: number;
+  sessions: number;
 }
 
-declare global {
-    interface Window {
-        electronAPI: ElectronAPI;
-    }
+export interface GameSettings {
+  fullscreen: boolean;
+  resolution: string;
+  volume: number;
+}
+
+export type NavSection = 'games' | 'addons' | 'settings' | 'about';
+
+export interface AddonConfig {
+  id: string;
+  name: string;
+  description: string;
+  targetGame: string;
+  version: string;
+  installed: boolean;
 }
