@@ -1,8 +1,12 @@
 #![allow(dead_code)]
+#![allow(unused_parens)]
+extern crate rand as rand_crate;
 use macroquad::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::fs;
-use rand::Rng;
+use rand_crate::Rng;
+use rand_crate::thread_rng;
+
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // CONSTANTS
@@ -103,9 +107,9 @@ impl Driver {
 
     fn race_performance(&self, wet: bool, rng: &mut impl Rng) -> f32 {
         let base = if wet {
-            (self.pace as f32 * 0.4 + self.wet_skill as f32 * 0.6)
+            self.pace as f32 * 0.4 + self.wet_skill as f32 * 0.6
         } else {
-            (self.pace as f32 * 0.6 + self.consistency as f32 * 0.4)
+            self.pace as f32 * 0.6 + self.consistency as f32 * 0.4
         };
         let variance = rng.gen_range(-8.0..8.0);
         let morale_bonus = self.morale as f32 * 0.05;
@@ -196,7 +200,7 @@ impl TireCompound {
 struct Circuit {
     name: String,
     country: String,
-    laps: u8,
+    laps: u16,
     pit_delta: f32,  // seconds lost in pit
     wet_chance: f32, // 0.0-1.0
     overtake_diff: f32, // 1.0 = normal
@@ -289,6 +293,7 @@ enum Screen {
     Standings,
 }
 
+#[derive(Clone)]
 struct RaceWeekendState {
     practice_done: bool,
     qualifying_done: bool,
@@ -296,8 +301,8 @@ struct RaceWeekendState {
     qualifying_pos2: u8,
     strategy1: TireCompound,
     strategy2: TireCompound,
-    pit_lap1: u8,
-    pit_lap2: u8,
+    pit_lap1: u16,
+    pit_lap2: u16,
     wet: bool,
     sim_progress: f32,
     sim_done: bool,
@@ -372,7 +377,7 @@ impl GameState {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 fn default_driver(name: &str, nationality: &str, pace: u8, salary: u32) -> Driver {
-    let mut rng = rand::thread_rng();
+    let mut rng = thread_rng();
     Driver {
         name: name.to_string(),
         nationality: nationality.to_string(),
@@ -1250,7 +1255,7 @@ fn draw_race_weekend(gs: &mut GameState, circuits: &[Circuit]) {
     draw_line(30.0, 90.0, sw() - 30.0, 90.0, 1.0, BORDER);
 
     // Weather
-    let mut rng = rand::thread_rng();
+    let mut rng = thread_rng();
     let wet_label = if gs.race_state.wet { ("WET RACE", BLUE) } else { ("DRY RACE", GREEN) };
     draw_text("CONDITIONS:", 30.0, 116.0, 16.0, TEXT_DIM);
     draw_text(wet_label.0, 130.0, 116.0, 18.0, wet_label.1);
@@ -1329,7 +1334,7 @@ fn draw_race_weekend(gs: &mut GameState, circuits: &[Circuit]) {
         if button("-", 150.0, 378.0, 26.0, 22.0, TEXT_DIM) && gs.race_state.pit_lap1 > 5 {
             gs.race_state.pit_lap1 -= 1;
         }
-        if button("+", 180.0, 378.0, 26.0, 22.0, TEXT_DIM) && gs.race_state.pit_lap1 < circuit.laps - 5 {
+        if button("+", 180.0, 378.0, 26.0, 22.0, TEXT_DIM) && gs.race_state.pit_lap1 < circuit.laps.saturating_sub(5) {
             gs.race_state.pit_lap1 += 1;
         }
 
@@ -1357,7 +1362,7 @@ fn draw_race_weekend(gs: &mut GameState, circuits: &[Circuit]) {
         if button("-", 150.0, 434.0, 26.0, 22.0, TEXT_DIM) && gs.race_state.pit_lap2 > 5 {
             gs.race_state.pit_lap2 -= 1;
         }
-        if button("+", 180.0, 434.0, 26.0, 22.0, TEXT_DIM) && gs.race_state.pit_lap2 < circuit.laps - 5 {
+        if button("+", 180.0, 434.0, 26.0, 22.0, TEXT_DIM) && gs.race_state.pit_lap2 < circuit.laps.saturating_sub(5) {
             gs.race_state.pit_lap2 += 1;
         }
     }
@@ -1404,7 +1409,7 @@ fn draw_race_simulation(gs: &mut GameState, circuits: &[Circuit]) {
             gs.race_state.sim_done = true;
 
             // Run actual simulation
-            let mut rng = rand::thread_rng();
+            let mut rng = thread_rng();
             let rs = gs.race_state.clone();
             let circuits_clone = circuits.to_vec();
             let result = {
@@ -1449,10 +1454,10 @@ fn draw_race_simulation(gs: &mut GameState, circuits: &[Circuit]) {
         draw_text(&format!("Driver 2 — P{}", fake_p2.max(2)), 30.0, 226.0, 18.0, TEXT_DIM);
 
         // Pit stop messages at appropriate laps
-        if (cur_lap as u8) == gs.race_state.pit_lap1 {
+        if (cur_lap as u16) == gs.race_state.pit_lap1 {
             draw_text("⬛ DRIVER 1 IN THE PITS", 30.0, 260.0, 18.0, GOLD);
         }
-        if (cur_lap as u8) == gs.race_state.pit_lap2 {
+        if (cur_lap as u16) == gs.race_state.pit_lap2 {
             draw_text("⬛ DRIVER 2 IN THE PITS", 30.0, 284.0, 18.0, GOLD);
         }
     } else {
