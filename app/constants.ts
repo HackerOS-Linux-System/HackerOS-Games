@@ -1,45 +1,108 @@
-import { GameConfig } from './types';
+import { GameConfig, AddonConfig } from './types';
 
 export const GAMES: GameConfig[] = [
-    {
-        id: 'starblaster',
-        name: 'Starblaster',
-        description: 'Blast through stars in this exciting space shooter!',
-        path: '/usr/share/HackerOS/Scripts/HackerOS-Games/starblaster',
-        color: '#00ff41', // Neon Green
-        twColor: 'text-neonGreen',
-        twBg: 'bg-neonGreen hover:bg-green-400',
-        // Use relative paths for Electron file:// protocol compatibility
-        icon: './images/starblaster.png'
-    },
-{
-    id: 'bit-jump',
-    name: 'Bit Jump',
-    description: 'Jump through bits in this platformer adventure!',
-    path: '/usr/share/HackerOS/Scripts/HackerOS-Games/bit-jump.love',
-    color: '#d600ff', // Neon Pink
-    twColor: 'text-neonPink',
-    twBg: 'bg-neonPink hover:bg-fuchsia-400',
-    icon: './images/bit-jump.png'
-},
-{
+  {
     id: 'the-racer',
     name: 'The Racer',
-    description: 'Race through circuits in this high-speed thriller!',
-    path: '/usr/share/HackerOS/Scripts/HackerOS-Games/the-racer',
-    color: '#ff0033', // Neon Red
-    twColor: 'text-neonRed',
-    twBg: 'bg-neonRed hover:bg-red-500',
-    icon: './images/the-racer.png'
-},
-{
+    description: 'Motorsport management sim — build your team to glory.',
+    longDescription: 'Take the role of a team principal across 5 prestigious racing series: Formula 1 2026, IndyCar, Formula E, WEC and GT3. Manage drivers, pit stops, strategy and R&D to climb the standings.',
+    color: '#ff1744',
+    rgb: '255,23,68',
+    icon: './images/the-racer.png',
+    genre: 'Management / Sim',
+    version: '1.0.0',
+    available: true,
+  },
+  {
+    id: 'cosmonaut',
+    name: 'Cosmonaut',
+    description: "Explore the cosmos in humanity's boldest space program.",
+    longDescription: 'Take command of a fledgling space agency. Design rockets, plan missions, recruit astronauts and unravel the mysteries of the solar system — all inspired by the golden age of NASA exploration.',
+    color: '#00cfff',
+    rgb: '0,207,255',
+    icon: './images/cosmonaut.png',
+    genre: 'Exploration / Strategy',
+    version: '0.1.0',
+    available: false,
+  },
+  {
+    id: 'starblaster',
+    name: 'Starblaster',
+    description: 'Dodge, graze and blast your way through enemy swarms.',
+    longDescription: 'A bullet-hell space shooter with dynamic difficulty, combo multipliers, graze mechanics and a full save/load system. Survive endless waves of increasingly dangerous foes.',
+    color: '#00ff41',
+    rgb: '0,255,65',
+    icon: './images/starblaster.png',
+    genre: 'Shooter / Arcade',
+    version: '0.6.0',
+    available: true,
+  },
+  {
     id: 'bark-squadron',
     name: 'Bark Squadron',
-    description: 'Dogfight your way to victory in the skies!',
-    path: '/usr/share/HackerOS/Scripts/HackerOS-Games/bark-squadron.AppImage',
-    color: '#00d0ff', // Neon Blue
-    twColor: 'text-neonBlue',
-    twBg: 'bg-neonBlue hover:bg-cyan-400',
-    // No icon specified, will fall back to default behavior
-}
+    description: 'Physics-based dogfighting with jets, waves and water.',
+    longDescription: 'Command a fighter jet in arcade dogfights with realistic physics — gravity, drag, stall speed, water skimming and afterburner effects. Three enemy types with unique AI, plus wave-based progression.',
+    color: '#ff2d9b',
+    rgb: '255,45,155',
+    icon: './images/bark-squadron.png',
+    genre: 'Action / Flight',
+    version: '0.6.0',
+    available: true,
+  },
+  {
+    id: 'bit-jump',
+    name: 'Bit Jump',
+    description: 'Precision platformer across 8 hand-crafted levels.',
+    longDescription: 'A Geometry Dash-inspired platformer built in LÖVE2D. Features moving platforms, rotating hazards, power-ups, a boss fight, multiple game modes (Normal, Time Attack, Endless, Practice), and full achievement support.',
+    color: '#ffd600',
+    rgb: '255,214,0',
+    icon: './images/bit-jump.png',
+    genre: 'Platformer',
+    version: '0.6.0',
+    available: true,
+  },
+];
+
+export const ADDONS: AddonConfig[] = [
+  {
+    id: 'starblaster-extended',
+    name: 'Starblaster: Extended Waves',
+    description: 'Adds 10 new enemy types and 5 boss encounters to Starblaster.',
+    targetGame: 'starblaster',
+    version: '1.0.0',
+    installed: false,
+  },
+  {
+    id: 'bark-squadron-campaign',
+    name: 'Bark Squadron: Campaign Mode',
+    description: 'A 12-mission story campaign for Bark Squadron.',
+    targetGame: 'bark-squadron',
+    version: '0.5.0',
+    installed: false,
+  },
+  {
+    id: 'bit-jump-world2',
+    name: 'Bit Jump: World 2',
+    description: 'Eight additional levels with new mechanics and a final boss.',
+    targetGame: 'bit-jump',
+    version: '0.3.0',
+    installed: false,
+  },
+  {
+    id: 'racer-season2027',
+    name: 'The Racer: 2027 Season Pack',
+    description: 'Updated driver rosters, car specs and calendar for the 2027 season.',
+    targetGame: 'the-racer',
+    version: '1.1.0',
+    installed: false,
+  },
+];
+
+export const RESOLUTIONS = [
+  '1280x720',
+  '1366x768',
+  '1600x900',
+  '1920x1080',
+  '2560x1440',
+  '3840x2160',
 ];
