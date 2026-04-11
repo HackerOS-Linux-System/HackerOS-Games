@@ -1,114 +1,75 @@
 import React, { useEffect, useRef } from 'react';
 
 const ParticlesBackground: React.FC = () => {
-    const canvasRef = useRef<HTMLCanvasElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
 
-    useEffect(() => {
-        const canvas = canvasRef.current;
-        if (!canvas) return;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) return;
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
 
-        let particles: Particle[] = [];
-        let animationFrameId: number;
-        let w = (canvas.width = window.innerWidth);
-        let h = (canvas.height = window.innerHeight);
+    let animId: number;
+    let w = (canvas.width = window.innerWidth);
+    let h = (canvas.height = window.innerHeight);
 
-        // Particle Configuration
-        const particleCount = 60;
-        const connectionDistance = 150;
+    type P = { x: number; y: number; vx: number; vy: number; size: number; opacity: number };
+    const particles: P[] = Array.from({ length: 55 }, () => ({
+      x: Math.random() * w,
+      y: Math.random() * h,
+      vx: (Math.random() - 0.5) * 0.45,
+      vy: (Math.random() - 0.5) * 0.45,
+      size: Math.random() * 1.5 + 0.5,
+      opacity: Math.random() * 0.5 + 0.15,
+    }));
 
-        class Particle {
-            x: number;
-            y: number;
-            vx: number;
-            vy: number;
-            size: number;
+    const CONN = 130;
 
-            constructor() {
-                this.x = Math.random() * w;
-                this.y = Math.random() * h;
-                this.vx = (Math.random() - 0.5) * 0.5; // Slow movement
-                this.vy = (Math.random() - 0.5) * 0.5;
-                this.size = Math.random() * 2 + 1;
-            }
-
-            update() {
-                this.x += this.vx;
-                this.y += this.vy;
-
-                // Bounce off edges
-                if (this.x < 0 || this.x > w) this.vx *= -1;
-                if (this.y < 0 || this.y > h) this.vy *= -1;
-            }
-
-            draw() {
-                if (!ctx) return;
-                ctx.beginPath();
-                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
-                ctx.fillStyle = 'rgba(0, 255, 65, 0.5)'; // Hacker Green
-                ctx.fill();
-            }
+    const draw = () => {
+      ctx.clearRect(0, 0, w, h);
+      for (const p of particles) {
+        p.x += p.vx;
+        p.y += p.vy;
+        if (p.x < 0 || p.x > w) p.vx *= -1;
+        if (p.y < 0 || p.y > h) p.vy *= -1;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(0,255,65,${p.opacity})`;
+        ctx.fill();
+      }
+      for (let i = 0; i < particles.length; i++) {
+        for (let j = i + 1; j < particles.length; j++) {
+          const dx = particles[i].x - particles[j].x;
+          const dy = particles[i].y - particles[j].y;
+          const d = Math.sqrt(dx * dx + dy * dy);
+          if (d < CONN) {
+            ctx.beginPath();
+            ctx.strokeStyle = `rgba(0,255,65,${(1 - d / CONN) * 0.1})`;
+            ctx.lineWidth = 1;
+            ctx.moveTo(particles[i].x, particles[i].y);
+            ctx.lineTo(particles[j].x, particles[j].y);
+            ctx.stroke();
+          }
         }
+      }
+      animId = requestAnimationFrame(draw);
+    };
 
-        const init = () => {
-            particles = [];
-            for (let i = 0; i < particleCount; i++) {
-                particles.push(new Particle());
-            }
-        };
+    const onResize = () => {
+      w = canvas.width = window.innerWidth;
+      h = canvas.height = window.innerHeight;
+    };
+    window.addEventListener('resize', onResize);
+    draw();
+    return () => { cancelAnimationFrame(animId); window.removeEventListener('resize', onResize); };
+  }, []);
 
-        const animate = () => {
-            if (!ctx) return;
-            ctx.clearRect(0, 0, w, h);
-
-            particles.forEach((p, index) => {
-                p.update();
-                p.draw();
-
-                // Connect particles
-                for (let j = index + 1; j < particles.length; j++) {
-                    const p2 = particles[j];
-                    const dx = p.x - p2.x;
-                    const dy = p.y - p2.y;
-                    const dist = Math.sqrt(dx * dx + dy * dy);
-
-                    if (dist < connectionDistance) {
-                        ctx.beginPath();
-                        ctx.strokeStyle = `rgba(0, 255, 65, ${0.15 - dist / connectionDistance / 5})`; // Fading line
-                        ctx.lineWidth = 1;
-                        ctx.moveTo(p.x, p.y);
-                        ctx.lineTo(p2.x, p2.y);
-                        ctx.stroke();
-                    }
-                }
-            });
-
-            animationFrameId = requestAnimationFrame(animate);
-        };
-
-        const handleResize = () => {
-            w = canvas.width = window.innerWidth;
-            h = canvas.height = window.innerHeight;
-            init();
-        };
-
-        window.addEventListener('resize', handleResize);
-        init();
-        animate();
-
-        return () => {
-            window.removeEventListener('resize', handleResize);
-            cancelAnimationFrame(animationFrameId);
-        };
-    }, []);
-
-    return (
-        <canvas
-        ref={canvasRef}
-        className="absolute inset-0 z-0 pointer-events-none opacity-60"
-        />
-    );
+  return (
+    <canvas
+      ref={canvasRef}
+      style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 0, opacity: 0.45 }}
+    />
+  );
 };
 
 export default ParticlesBackground;
