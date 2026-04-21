@@ -22,7 +22,7 @@ main :: proc() {
 
         draw_stars(gs.star_anim)
 
-        switch gs.screen {
+        #partial switch gs.screen {
         case .MainMenu:
             draw_main_menu(&gs)
         case .NewGame:
@@ -69,7 +69,7 @@ main :: proc() {
         draw_notification(&gs)
 
         if rl.IsKeyPressed(.ESCAPE) {
-            switch gs.screen {
+            #partial switch gs.screen {
             case .MainMenu, .Dashboard: // stay
             case .NewGame, .RocketDesign, .MissionPlan, .MissionLog:
                 gs.screen = .Dashboard
