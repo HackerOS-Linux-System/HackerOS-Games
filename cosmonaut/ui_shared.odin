@@ -14,7 +14,6 @@ draw_topbar :: proc(gs: ^GameState) {
     defer delete(name_cs)
     rl.DrawText(name_cs, 14, 12, 20, COL_ACCENT)
 
-    date_str := fmt.tprintf("%s %d", month_name(a.month), a.year)
     rl.DrawText(tprint("%s %d", month_name(a.month), a.year), SCREEN_W/2 - 40, 12, 18, COL_DIM)
 
     budget_str := tprint("$%dM", a.budget)
@@ -25,7 +24,6 @@ draw_topbar :: proc(gs: ^GameState) {
     rl.DrawText(tprint("* %d", a.prestige),    SCREEN_W - 150, 13, 18, COL_GOLD)
     rl.DrawText(tprint("S %d", a.science_pts), SCREEN_W -  65, 13, 18, COL_CYAN)
 
-    _ = date_str
 }
 
 draw_bottom_nav :: proc(gs: ^GameState) {
