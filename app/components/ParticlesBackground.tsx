@@ -16,11 +16,11 @@ const ParticlesBackground: React.FC = () => {
     type P = { x: number; y: number; vx: number; vy: number; size: number; opacity: number };
     const particles: P[] = Array.from({ length: 55 }, () => ({
       x: Math.random() * w,
-      y: Math.random() * h,
-      vx: (Math.random() - 0.5) * 0.45,
-      vy: (Math.random() - 0.5) * 0.45,
-      size: Math.random() * 1.5 + 0.5,
-      opacity: Math.random() * 0.5 + 0.15,
+                                                             y: Math.random() * h,
+                                                             vx: (Math.random() - 0.5) * 0.45,
+                                                             vy: (Math.random() - 0.5) * 0.45,
+                                                             size: Math.random() * 1.5 + 0.5,
+                                                             opacity: Math.random() * 0.5 + 0.15,
     }));
 
     const CONN = 130;
@@ -34,7 +34,7 @@ const ParticlesBackground: React.FC = () => {
         if (p.y < 0 || p.y > h) p.vy *= -1;
         ctx.beginPath();
         ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(0,255,65,${p.opacity})`;
+        ctx.fillStyle = `rgba(42,143,255,${p.opacity})`;
         ctx.fill();
       }
       for (let i = 0; i < particles.length; i++) {
@@ -66,8 +66,8 @@ const ParticlesBackground: React.FC = () => {
 
   return (
     <canvas
-      ref={canvasRef}
-      style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 0, opacity: 0.45 }}
+    ref={canvasRef}
+    style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 0, opacity: 0.45 }}
     />
   );
 };
