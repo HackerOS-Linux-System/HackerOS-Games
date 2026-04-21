@@ -17,8 +17,8 @@ label_str :: proc(text: string, x, y: f32, size: i32, col: rl.Color) {
     rl.DrawText(cs, i32(x), i32(y), size, col)
 }
 
-tprint :: proc(args: ..any) -> cstring {
-    s := fmt.tprintf(..args)
+tprint :: proc(fmt_str: string, args: ..any) -> cstring {
+    s := fmt.tprintf(fmt_str, ..args)
     return strings.clone_to_cstring(s)
 }
 
