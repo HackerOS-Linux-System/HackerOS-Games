@@ -1,5 +1,6 @@
 package cosmonaut
 
+import "core:math"
 import "core:math/rand"
 import "core:strings"
 import rl "vendor:raylib"
@@ -12,17 +13,15 @@ star_count: int
 init_stars :: proc() {
     star_count = 300
     for i in 0..<star_count {
-        stars[i] = Star{
-            x:          rand.float32() * f32(SCREEN_W),
-            y:          rand.float32() * f32(SCREEN_H),
-            size:       rand.float32() * 1.8 + 0.3,
-            brightness: rand.float32() * 0.7 + 0.3,
-        }
+        s := &stars[i]
+        s.x          = rand.float32() * f32(SCREEN_W)
+        s.y          = rand.float32() * f32(SCREEN_H)
+        s.size       = rand.float32() * 1.8 + 0.3
+        s.brightness = rand.float32() * 0.7 + 0.3
     }
 }
 
 draw_stars :: proc(anim: f32) {
-    import "core:math"
     for i in 0..<star_count {
         s := &stars[i]
         flicker := f32(0.7) + f32(0.3) * math.sin_f32(anim*1.3 + f32(i)*0.7)
