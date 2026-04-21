@@ -12,11 +12,11 @@ import rl "vendor:raylib"
 // ═══════════════════════════════════════════════════════════════════════════════
 
 draw_main_menu :: proc(gs: ^GameState) {
-    title := "COSMONAUT"
+    title : cstring = "COSMONAUT"
     tw := rl.MeasureText(title, 80)
     rl.DrawText(title, SCREEN_W/2 - tw/2, i32(f32(SCREEN_H)*0.18), 80, COL_ACCENT)
 
-    sub := "SPACE AGENCY MANAGEMENT"
+    sub : cstring = "SPACE AGENCY MANAGEMENT"
     sw2 := rl.MeasureText(sub, 20)
     rl.DrawText(sub, SCREEN_W/2 - sw2/2, i32(f32(SCREEN_H)*0.18)+90, 20, COL_DIM)
 
@@ -69,7 +69,7 @@ draw_new_game :: proc(gs: ^GameState) {
 
     label("Starting Era:", 80, 205, 20, COL_DIM)
 
-    Era :: struct { name: string; year: int; budget: int; income: int; desc: string }
+    Era :: struct { name: string, year: int, budget: int, income: int, desc: string }
     eras := [4]Era{
         {"Space Race (1957)", 1957, 300, 30, "Humble beginnings. Limited technology."},
         {"Apollo Era (1960)", 1960, 500, 45, "Lunar ambitions. Improved rockets."},
@@ -121,7 +121,7 @@ draw_dashboard :: proc(gs: ^GameState) {
     rl.DrawLine(20, 86, SCREEN_W-20, 86, COL_BORDER)
 
     // Stats row
-    StatEntry :: struct { lbl: string; val: string; col: rl.Color }
+    StatEntry :: struct { lbl: string, val: string, col: rl.Color }
     stats := [5]StatEntry{
         {"BUDGET",     fmt.tprintf("$%dM", a.budget),          COL_GREEN},
         {"PRESTIGE",   fmt.tprintf("%d pts", a.prestige),       COL_GOLD},
@@ -178,7 +178,7 @@ draw_dashboard :: proc(gs: ^GameState) {
     if button("ADVANCE MONTH", f32(SCREEN_W)-210, f32(SCREEN_H)-90, 195, 42, COL_ACCENT) {
         advance_month(gs)
     }
-    label("[SPACE]", SCREEN_W-195, SCREEN_H-44, 13, COL_DIM)
+    label("[SPACE]", f32(SCREEN_W-195), f32(SCREEN_H-44), 13, COL_DIM)
     if rl.IsKeyPressed(.SPACE) { advance_month(gs) }
 }
 
@@ -499,7 +499,7 @@ draw_mission_plan :: proc(gs: ^GameState) {
         sel := gs.selected == i
 
         tcol: rl.Color
-        switch t {
+        #partial switch t {
         case .LunarFlyby, .LunarOrbit, .LunarLanding:  tcol = COL_GOLD
         case .MarsProbe, .MarsOrbiter, .MarsSurface:    tcol = COL_RED
         case .CrewedOrbit, .SpaceStation:               tcol = COL_GREEN
@@ -624,7 +624,7 @@ draw_mission_log :: proc(gs: ^GameState) {
     rl.DrawText(tprint("%s  ->  %s", mission_type_name(m.mission_type), m.destination), 20, 126, 16, COL_DIM)
 
     // Stats panels
-    StatItem :: struct { l: string; v: string; c: rl.Color }
+    StatItem :: struct { l: string, v: string, c: rl.Color }
     stats := [6]StatItem{
         {"Status",   mission_status_str(m.status),                    scol},
         {"Elapsed",  fmt.tprintf("%d / %d mo", m.elapsed, m.duration),COL_TEXT},
@@ -792,7 +792,7 @@ draw_star_map :: proc(gs: ^GameState) {
     }
 
     // Legend
-    LegItem :: struct { col: rl.Color; lbl: string }
+    LegItem :: struct { col: rl.Color, lbl: string }
     legend := [4]LegItem{
         {COL_GREEN, "Landed"},
         {COL_CYAN,  "Orbited"},
@@ -814,20 +814,20 @@ draw_star_map :: proc(gs: ^GameState) {
         panel(px, vy, pw, vh, COL_PANEL)
         rl.DrawText(tprint("%s", b.name), i32(px)+12, i32(vy)+14, 26, b.color)
 
-        InfoRow :: struct { l: string; v: string }
+        InfoRow :: struct { l: string, v: string }
         rows := [3]InfoRow{
             {"Distance", fmt.tprintf("%.2f AU", b.distance_au)},
             {"Diameter", fmt.tprintf("%.0f km", b.diameter_km)},
             {"Gravity",  fmt.tprintf("%.2f g",  b.gravity_g)},
         }
         for i in 0..<3 {
-            ry2 := f32(i32(vy)+50 + i*28)
+            ry2 := f32(i32(vy) + 50 + i32(i)*28)
             rl.DrawText(tprint("%s", rows[i].l), i32(px)+12, i32(ry2), 14, COL_DIM)
             rl.DrawText(tprint("%s", rows[i].v), i32(px)+100, i32(ry2), 14, COL_TEXT)
         }
 
         section_line("EXPLORATION", f32(vy)+142)
-        ExplItem :: struct { l: string; done: bool }
+        ExplItem :: struct { l: string, done: bool }
         expls := [4]ExplItem{
             {"Probed",   b.probed},
             {"Orbited",  b.orbited},
@@ -835,7 +835,7 @@ draw_star_map :: proc(gs: ^GameState) {
             {"Explored", b.explored},
         }
         for i in 0..<4 {
-            sy := f32(i32(vy)+152 + i*26)
+            sy := f32(i32(vy) + 152 + i32(i)*26)
             icon := expls[i].done ? "OK" : "  "
             icol := expls[i].done ? COL_GREEN : COL_DIM
             rl.DrawText(tprint("%s", icon), i32(px)+12, i32(sy), 16, icol)
