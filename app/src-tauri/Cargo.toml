@@ -2,7 +2,7 @@
 name = "hackeros-games"
 version = "0.7.0"
 description = "HackerOS Games Launcher"
-authors = ["HackerOS <hackeros068@gmail.com>"]
+authors = ["HackerOS Team <hackeros068@gmail.com>"]
 edition = "2021"
 
 [build-dependencies]
