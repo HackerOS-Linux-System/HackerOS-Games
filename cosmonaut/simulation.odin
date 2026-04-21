@@ -105,7 +105,7 @@ mission_destination :: proc(t: MissionType) -> string {
 }
 
 mission_needs_crew :: proc(t: MissionType) -> bool {
-    switch t {
+    #partial switch t {
     case .CrewedOrbit, .LunarOrbit, .LunarLanding, .MarsSurface, .SpaceStation:
         return true
     }
@@ -118,7 +118,7 @@ update_body_exploration :: proc(gs: ^GameState, m: ^Mission) {
     for i in 0..<gs.body_count {
         b := &gs.bodies[i]
         if !strings.contains(m.destination, b.name) { continue }
-        switch m.mission_type {
+        #partial switch m.mission_type {
         case .LunarFlyby, .MarsProbe, .AsteroidProbe, .DeepSpaceProbe:
             b.probed = true
         case .LunarOrbit, .MarsOrbiter, .SpaceStation:
