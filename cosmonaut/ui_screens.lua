@@ -1,892 +1,999 @@
-package cosmonaut
+local lg = love.graphics
 
-import "core:fmt"
-import "core:math"
-import "core:math/rand"
-import "core:os"
-import "core:strings"
-import rl "vendor:raylib"
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- MAIN MENU
+-- ═══════════════════════════════════════════════════════════════════════════════
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// MAIN MENU
-// ═══════════════════════════════════════════════════════════════════════════════
+function drawMainMenu(gs)
+    -- Title
+    local title = "COSMONAUT"
+    local tw = measureText(title, 72)
+    drawText(title, SCREEN_W/2 - tw/2, SCREEN_H * 0.16, 72, COL_ACCENT)
 
-draw_main_menu :: proc(gs: ^GameState) {
-    title : cstring = "COSMONAUT"
-    tw := rl.MeasureText(title, 80)
-    rl.DrawText(title, SCREEN_W/2 - tw/2, i32(f32(SCREEN_H)*0.18), 80, COL_ACCENT)
+    local sub = "SPACE AGENCY MANAGEMENT"
+    local sw = measureText(sub, 18)
+    drawText(sub, SCREEN_W/2 - sw/2, SCREEN_H * 0.16 + 80, 18, COL_DIM)
 
-    sub : cstring = "SPACE AGENCY MANAGEMENT"
-    sw2 := rl.MeasureText(sub, 20)
-    rl.DrawText(sub, SCREEN_W/2 - sw2/2, i32(f32(SCREEN_H)*0.18)+90, 20, COL_DIM)
+    -- Decorative orbit rings
+    drawEllipseLines(SCREEN_W/2, SCREEN_H/2 + 40, 280, 100, COL_BORDER, 0.1)
+    drawEllipseLines(SCREEN_W/2, SCREEN_H/2 + 40, 200, 72,  COL_BORDER, 0.07)
+    drawEllipseLines(SCREEN_W/2, SCREEN_H/2 + 40, 360, 130, COL_BORDER, 0.05)
 
-    rl.DrawLine(SCREEN_W/2-180, i32(f32(SCREEN_H)*0.38), SCREEN_W/2+180, i32(f32(SCREEN_H)*0.38), COL_BORDER)
+    -- Animated dot on orbit
+    local angle = gs.starAnim * 0.4
+    local dx = SCREEN_W/2 + 280 * math.cos(angle)
+    local dy = SCREEN_H/2 + 40 + 100 * math.sin(angle)
+    drawCircle(dx, dy, 5, COL_ACCENT, 0.8)
 
-    bw :: f32(260)
-    bh :: f32(48)
-    bx := f32(SCREEN_W)/2 - bw/2
+    drawLine(SCREEN_W/2 - 180, SCREEN_H * 0.38, SCREEN_W/2 + 180, SCREEN_H * 0.38, COL_BORDER)
 
-    if button("NEW AGENCY",  bx, f32(SCREEN_H)*0.42,      bw, bh, COL_ACCENT) {
-        gs.screen = .NewGame
-        gs.setup_step = 0
-        gs.input_len = 0
-        gs.selected = 0
-    }
-    if button("EXIT", bx, f32(SCREEN_H)*0.42+62, bw, bh, COL_DIM) { os.exit(0) }
+    local bw = 260
+    local bh = 48
+    local bx = SCREEN_W/2 - bw/2
 
-    // Decorative orbit circles
-    rl.DrawCircleLines(SCREEN_W/2, SCREEN_H/2+40, 280, rl.Color{40, 80, 160, 25})
-    rl.DrawCircleLines(SCREEN_W/2, SCREEN_H/2+40, 200, rl.Color{30, 60, 120, 18})
+    if button("NEW AGENCY",   bx, SCREEN_H * 0.42,      bw, bh, COL_ACCENT) then
+        gs.screen     = SCREENS.NEW_GAME
+        gs.setupStep  = 0
+        gs.inputBuf   = ""
+        gs.selected   = 1
+    end
+    if button("ABOUT / HELP", bx, SCREEN_H * 0.42 + 62, bw, bh, COL_DIM) then
+        pushNotification(gs, "Cosmonaut v2.0 — A space agency management game written in Lua/LÖVE")
+    end
 
-    rl.DrawText("v0.1.0", SCREEN_W-60, SCREEN_H-20, 13, COL_DIM)
+    drawText("v2.0 — LÖVE Edition", SCREEN_W - 200, SCREEN_H - 22, 13, COL_DIM)
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- NEW GAME
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+local ERAS = {
+    {name="Space Race (1957)", year=1957, budget=300,  income=30, desc="Humble beginnings. Limited technology."},
+    {name="Apollo Era (1960)", year=1960, budget=500,  income=45, desc="Lunar ambitions. Improved rockets."},
+    {name="Shuttle Era (1975)",year=1975, budget=800,  income=65, desc="Reusability focus. Larger budgets."},
+    {name="Modern Era (1995)", year=1995, budget=1200, income=90, desc="Advanced tech. Commercial partnerships."},
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// NEW GAME
-// ═══════════════════════════════════════════════════════════════════════════════
+function drawNewGame(gs)
+    drawText("ESTABLISH YOUR SPACE AGENCY", 30, 34, 26, COL_TEXT)
+    drawLine(30, 68, SCREEN_W - 30, 68, COL_BORDER)
 
-draw_new_game :: proc(gs: ^GameState) {
-    label("ESTABLISH YOUR SPACE AGENCY", 30, 30, 28, COL_TEXT)
-    rl.DrawLine(30, 66, SCREEN_W-30, 66, COL_BORDER)
+    drawText("Agency Name:", 80, 108, 18, COL_DIM)
+    drawRect(80, 132, 500, 42, COL_PANEL2)
+    drawRectLines(80, 132, 500, 42, COL_ACCENT)
+    drawText(gs.inputBuf .. "|", 92, 143, 20, COL_TEXT)
 
-    label("Agency Name:", 80, 110, 20, COL_DIM)
-    rl.DrawRectangle(80, 138, 500, 44, COL_PANEL2)
-    rl.DrawRectangleLines(80, 138, 500, 44, COL_ACCENT)
+    drawText("Starting Era:", 80, 196, 18, COL_DIM)
+    for i, e in ipairs(ERAS) do
+        local ey  = 216 + (i-1) * 76
+        local sel = gs.selected == i
+        drawRect(80, ey, 500, 68, sel and {20/255,40/255,80/255,0.78} or COL_PANEL)
+        drawRectLines(80, ey, 500, 68, sel and COL_ACCENT or COL_BORDER)
+        drawText(e.name, 96, ey + 10, 18, sel and COL_ACCENT or COL_TEXT)
+        drawText(e.desc, 96, ey + 32, 13, COL_DIM)
+        drawText(string.format("$%dM start  |  $%dM/mo", e.budget, e.income), 96, ey + 50, 12, COL_DIM)
+        if mouseInAndClicked(80, ey, 500, 68) then gs.selected = i end
+    end
 
-    display := string(gs.input_buf[:gs.input_len])
-    rl.DrawText(tprint("%s|", display), 92, 150, 22, COL_TEXT)
-
-    // Keyboard input
-    char := rl.GetCharPressed()
-    for char != 0 {
-        if gs.input_len < 40 && char >= 32 {
-            gs.input_buf[gs.input_len] = u8(char)
-            gs.input_len += 1
-        }
-        char = rl.GetCharPressed()
-    }
-    if rl.IsKeyPressed(.BACKSPACE) && gs.input_len > 0 { gs.input_len -= 1 }
-
-    label("Starting Era:", 80, 205, 20, COL_DIM)
-
-    Era :: struct { name: string, year: int, budget: int, income: int, desc: string }
-    eras := [4]Era{
-        {"Space Race (1957)", 1957, 300, 30, "Humble beginnings. Limited technology."},
-        {"Apollo Era (1960)", 1960, 500, 45, "Lunar ambitions. Improved rockets."},
-        {"Shuttle Era (1975)", 1975, 800, 65, "Reusability focus. Larger budgets."},
-        {"Modern Era (1995)", 1995,1200, 90, "Advanced tech. Commercial partnerships."},
-    }
-
-    for i in 0..<4 {
-        e := eras[i]
-        ey := f32(228 + i*78)
-        sel := gs.selected == i
-        bg := sel ? rl.Color{20,40,80,200} : COL_PANEL
-        rl.DrawRectangle(80, i32(ey), 500, 68, bg)
-        rl.DrawRectangleLines(80, i32(ey), 500, 68, sel ? COL_ACCENT : COL_BORDER)
-        rl.DrawText(tprint("%s", e.name), 96, i32(ey)+10, 20, sel ? COL_ACCENT : COL_TEXT)
-        rl.DrawText(tprint("%s", e.desc), 96, i32(ey)+34, 14, COL_DIM)
-        rl.DrawText(tprint("$%dM start  |  $%dM/mo income", e.budget, e.income), 96, i32(ey)+52, 13, COL_DIM)
-
-        mx := i32(rl.GetMouseX())
-        my := i32(rl.GetMouseY())
-        if mx >= 80 && mx <= 580 && my >= i32(ey) && my <= i32(ey)+68 && rl.IsMouseButtonPressed(.LEFT) {
-            gs.selected = i
-        }
-    }
-
-    can_start := gs.input_len > 0
-    if button("FOUND AGENCY ->", f32(SCREEN_W)/2 - 140, f32(SCREEN_H)-80, 280, 50, COL_ACCENT, !can_start) {
-        e := eras[gs.selected]
-        name := strings.clone(string(gs.input_buf[:gs.input_len]))
-        gs.agency = new_agency(name)
+    local canStart = #gs.inputBuf > 0
+    if button("FOUND AGENCY ->", SCREEN_W/2 - 140, SCREEN_H - 82, 280, 48, COL_ACCENT, not canStart) then
+        local e       = ERAS[gs.selected or 1]
+        gs.agency     = newAgency(gs.inputBuf)
         gs.agency.year           = e.year
         gs.agency.budget         = e.budget
         gs.agency.monthly_income = e.income
-        gs.screen = .Dashboard
+        gs.screen   = SCREENS.DASHBOARD
         gs.selected = -1
+    end
+    if button("<- BACK", 30, SCREEN_H - 82, 120, 42, COL_DIM) then
+        gs.screen = SCREENS.MAIN_MENU
+    end
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- DASHBOARD
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+function drawDashboard(gs)
+    local a = gs.agency
+    drawText("MISSION CONTROL", 20, 58, 22, COL_TEXT)
+    drawLine(20, 84, SCREEN_W - 20, 84, COL_BORDER)
+
+    -- Stats row
+    local statsData = {
+        {lbl="BUDGET",     val=string.format("$%dM",  a.budget),         col=COL_GREEN},
+        {lbl="PRESTIGE",   val=string.format("%d pts", a.prestige),       col=COL_GOLD},
+        {lbl="SCIENCE",    val=string.format("%d pts", a.science_pts),    col=COL_CYAN},
+        {lbl="REPUTATION", val=string.format("%d%%",   a.reputation),     col=COL_ACCENT},
+        {lbl="INCOME",     val=string.format("+$%dM/mo", a.monthly_income),col=COL_GREEN},
     }
-    if button("<- BACK", 30, f32(SCREEN_H)-80, 120, 44, COL_DIM) {
-        gs.screen = .MainMenu
-    }
-}
+    local sw = (SCREEN_W - 40) / #statsData
+    for i, s in ipairs(statsData) do
+        local sx = 20 + (i-1) * sw
+        drawRect(sx, 92, sw - 4, 58, COL_PANEL)
+        drawRectLines(sx, 92, sw - 4, 58, COL_BORDER)
+        drawText(s.lbl, sx + 10, 102, 12, COL_DIM)
+        drawText(s.val,  sx + 10, 118, 18, s.col)
+    end
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// DASHBOARD
-// ═══════════════════════════════════════════════════════════════════════════════
-
-draw_dashboard :: proc(gs: ^GameState) {
-    a := &gs.agency
-    label("MISSION CONTROL", 20, 58, 24, COL_TEXT)
-    rl.DrawLine(20, 86, SCREEN_W-20, 86, COL_BORDER)
-
-    // Stats row
-    StatEntry :: struct { lbl: string, val: string, col: rl.Color }
-    stats := [5]StatEntry{
-        {"BUDGET",     fmt.tprintf("$%dM", a.budget),          COL_GREEN},
-        {"PRESTIGE",   fmt.tprintf("%d pts", a.prestige),       COL_GOLD},
-        {"SCIENCE",    fmt.tprintf("%d pts", a.science_pts),    COL_CYAN},
-        {"REPUTATION", fmt.tprintf("%d%%", a.reputation),       COL_ACCENT},
-        {"INCOME",     fmt.tprintf("+$%dM/mo", a.monthly_income),COL_GREEN},
-    }
-    sw3 := f32(SCREEN_W-40) / 5
-    for i in 0..<5 {
-        sx := f32(20) + f32(i)*sw3
-        rl.DrawRectangle(i32(sx), 94, i32(sw3)-4, 60, COL_PANEL)
-        rl.DrawRectangleLines(i32(sx), 94, i32(sw3)-4, 60, COL_BORDER)
-        rl.DrawText(tprint("%s", stats[i].lbl), i32(sx)+10, 104, 13, COL_DIM)
-        rl.DrawText(tprint("%s", stats[i].val), i32(sx)+10, 122, 20, stats[i].col)
-    }
-
-    // Active missions
-    section_line("ACTIVE MISSIONS", 168)
-    active_count := 0
-    for i in 0..<a.mission_count {
-        m := &a.missions[i]
-        if m.status != .InFlight && m.status != .ReadyToLaunch { continue }
-        my2 := f32(182 + active_count*52)
-        if my2 > f32(SCREEN_H) - 220 { break }
-        panel(20, my2, f32(SCREEN_W)-40, 46, COL_PANEL)
-        scol := mission_status_col(m.status)
-        rl.DrawRectangle(20, i32(my2), 4, 46, scol)
-        rl.DrawText(tprint("%s", m.name), 32, i32(my2)+8, 18, COL_TEXT)
-        rl.DrawText(tprint("%s", mission_type_name(m.mission_type)), 32, i32(my2)+30, 13, COL_DIM)
-        progress := f32(m.elapsed) / f32(max(m.duration, 1))
-        rl.DrawRectangle(300, i32(my2)+16, 300, 14, COL_PANEL2)
-        rl.DrawRectangle(300, i32(my2)+16, i32(300*progress), 14, scol)
-        rl.DrawRectangleLines(300, i32(my2)+16, 300, 14, COL_BORDER)
-        rl.DrawText(tprint("Mo %d/%d", m.elapsed, m.duration), 608, i32(my2)+18, 14, COL_DIM)
-        rl.DrawText(tprint("-> %s", m.destination), SCREEN_W-200, i32(my2)+18, 14, COL_ACCENT)
-        active_count += 1
-    }
-    if active_count == 0 {
-        rl.DrawText("No active missions. Plan one in MISSIONS.", 40, 196, 16, COL_DIM)
-    }
-
-    // Events
-    ey := f32(182 + max(active_count,1)*52 + 20)
-    section_line("RECENT EVENTS", ey)
-    for i in 0..<a.event_count {
-        idx := a.event_count - 1 - i
-        ly := ey + 18 + f32(i)*22
-        if ly > f32(SCREEN_H)-100 { break }
-        rl.DrawText(tprint("%s", a.events[idx]), 28, i32(ly), 14, COL_DIM)
-    }
-    if a.event_count == 0 { rl.DrawText("No events yet.", 28, i32(ey)+18, 14, COL_DIM) }
-
-    // Advance time
-    if button("ADVANCE MONTH", f32(SCREEN_W)-210, f32(SCREEN_H)-90, 195, 42, COL_ACCENT) {
-        advance_month(gs)
-    }
-    label("[SPACE]", f32(SCREEN_W-195), f32(SCREEN_H-44), 13, COL_DIM)
-    if rl.IsKeyPressed(.SPACE) { advance_month(gs) }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// ROCKETS
-// ═══════════════════════════════════════════════════════════════════════════════
-
-draw_rockets :: proc(gs: ^GameState) {
-    a := &gs.agency
-    label("ROCKET FLEET", 20, 58, 24, COL_TEXT)
-    rl.DrawLine(20, 86, SCREEN_W-20, 86, COL_BORDER)
-
-    for i in 0..<a.rocket_count {
-        r := &a.rockets[i]
-        ry := f32(96 + i*162)
-        sel := gs.selected == i
-        bg := sel ? rl.Color{15,25,50,220} : COL_PANEL
-        rl.DrawRectangle(20, i32(ry), SCREEN_W-40, 152, bg)
-        rl.DrawRectangleLines(20, i32(ry), SCREEN_W-40, 152, sel ? COL_ACCENT : COL_BORDER)
-
-        rl.DrawText(tprint("%s", r.name), 36, i32(ry)+10, 24, COL_ACCENT)
-        rl.DrawText(tprint("VEHICLE #%02d", r.id), 36, i32(ry)+38, 14, COL_DIM)
-
-        stat_bar("RELIABILITY", r.reliability*99, 99, 300, ry+14, 340, COL_GREEN)
-        stat_bar("PAYLOAD kg",  r.payload_kg, 50000, 300, ry+36, 340, COL_ACCENT)
-
-        for si in 0..<r.stage_count {
-            s := r.stages[si]
-            sx := f32(660 + si*200)
-            rl.DrawRectangle(i32(sx), i32(ry)+10, 185, 90, COL_PANEL2)
-            rl.DrawRectangleLines(i32(sx), i32(ry)+10, 185, 90, COL_BORDER)
-            rl.DrawText(tprint("Stage %d: %s", si+1, s.name), i32(sx)+8, i32(ry)+20, 12, COL_DIM)
-            rl.DrawText(tprint("Thrust: %.0f kN", s.thrust_kn), i32(sx)+8, i32(ry)+36, 13, COL_TEXT)
-            rl.DrawText(tprint("Isp:    %.0f s",  s.isp),       i32(sx)+8, i32(ry)+52, 13, COL_TEXT)
-            if s.reusable { rl.DrawText("REUSABLE", i32(sx)+8, i32(ry)+70, 12, COL_GREEN) }
+    -- Milestone ribbon
+    if a.milestones then
+        local mx2 = 20
+        local my2 = 156
+        local ms = {
+            {key="orbit",         label="ORBIT",         col=COL_CYAN},
+            {key="moon_orbit",    label="MOON ORBIT",    col=COL_GOLD},
+            {key="moon_landing",  label="MOON LANDING",  col=COL_GREEN},
+            {key="mars",          label="MARS",          col=COL_RED},
         }
+        for _, milestone in ipairs(ms) do
+            local done = a.milestones[milestone.key]
+            local c    = done and milestone.col or COL_DIM
+            drawRect(mx2, my2, 130, 18, COL_PANEL2)
+            drawRectLines(mx2, my2, 130, 18, done and c or COL_BORDER)
+            drawTextCentered(milestone.label, mx2, my2 + 2, 130, 12, c)
+            mx2 = mx2 + 136
+        end
+    end
 
-        rl.DrawText(tprint("Launches: %d  Successes: %d  Cost: $%.0fM", r.launches, r.successes, r.cost_million),
-            36, i32(ry)+118, 14, COL_DIM)
-        rel_pct := tprint("%.0f%% reliability", r.reliability*100)
-        rcol := r.reliability > 0.85 ? COL_GREEN : (r.reliability > 0.70 ? COL_GOLD : COL_RED)
-        rl.DrawText(rel_pct, 36, i32(ry)+136, 15, rcol)
+    -- Active missions
+    sectionLine("ACTIVE MISSIONS", 182)
+    local activeCount = 0
+    for _, m in ipairs(a.missions) do
+        if m.status == "InFlight" or m.status == "ReadyToLaunch" then
+            local my3 = 196 + activeCount * 52
+            if my3 > SCREEN_H - 220 then break end
+            panel(20, my3, SCREEN_W - 40, 46, COL_PANEL)
+            local sc = missionStatusCol(m.status)
+            drawRect(20, my3, 4, 46, sc)
+            drawText(m.name, 32, my3 + 7, 17, COL_TEXT)
+            drawText(missionTypeName(m.mission_type), 32, my3 + 28, 12, COL_DIM)
+            local prog = m.elapsed / math.max(m.duration, 1)
+            drawRect(300, my3 + 14, 300, 14, COL_PANEL2)
+            drawRect(300, my3 + 14, 300 * prog, 14, sc)
+            drawRectLines(300, my3 + 14, 300, 14, COL_BORDER)
+            drawText(string.format("Mo %d/%d", m.elapsed, m.duration), 608, my3 + 16, 13, COL_DIM)
+            drawText("-> " .. m.destination, SCREEN_W - 200, my3 + 16, 13, COL_ACCENT)
+            activeCount = activeCount + 1
+        end
+    end
+    if activeCount == 0 then
+        drawText("No active missions. Plan one in MISSIONS.", 40, 200, 15, COL_DIM)
+    end
 
-        mx := i32(rl.GetMouseX())
-        my := i32(rl.GetMouseY())
-        if mx >= 20 && mx <= SCREEN_W-20 && my >= i32(ry) && my <= i32(ry)+152 && rl.IsMouseButtonPressed(.LEFT) {
-            gs.selected = i
-        }
-    }
+    -- Events
+    local ey2 = 196 + math.max(activeCount, 1) * 52 + 18
+    sectionLine("RECENT EVENTS", ey2)
+    for i, ev in ipairs(a.events) do
+        local ly = ey2 + 16 + (i-1) * 21
+        if ly > SCREEN_H - 110 then break end
+        drawText(ev, 28, ly, 13, COL_DIM)
+    end
+    if #a.events == 0 then drawText("No events yet.", 28, ey2 + 16, 13, COL_DIM) end
 
-    if button("+ DESIGN NEW ROCKET", 20, f32(SCREEN_H)-90, 220, 44, COL_ORANGE) {
-        gs.screen = .RocketDesign
+    -- Rival news ticker
+    for i, rn in ipairs(gs.rivalNews or {}) do
+        local ry = SCREEN_H - 120 - i * 18
+        drawText("[RIVAL] " .. rn.msg, 20, ry, 13, rn.col or COL_RED)
+    end
+
+    -- Advance month button
+    if button("ADVANCE MONTH", SCREEN_W - 212, SCREEN_H - 96, 196, 42, COL_ACCENT) then
+        advanceMonth(gs)
+    end
+    drawText("[SPACE]", SCREEN_W - 196, SCREEN_H - 50, 12, COL_DIM)
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- ROCKETS
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+function drawRockets(gs)
+    local a = gs.agency
+    drawText("ROCKET FLEET", 20, 58, 22, COL_TEXT)
+    drawLine(20, 84, SCREEN_W - 20, 84, COL_BORDER)
+
+    for i, r in ipairs(a.rockets) do
+        local ry = 92 + (i-1) * 160
+        if ry > SCREEN_H - 150 then break end
+        local sel = gs.selected == i
+        drawRect(20, ry, SCREEN_W - 40, 150, sel and {15/255,25/255,50/255,0.86} or COL_PANEL)
+        drawRectLines(20, ry, SCREEN_W - 40, 150, sel and COL_ACCENT or COL_BORDER)
+
+        drawText(r.name, 36, ry + 10, 22, COL_ACCENT)
+        drawText(string.format("VEHICLE #%02d", r.id), 36, ry + 36, 13, COL_DIM)
+
+        statBar("RELIABILITY", r.reliability * 99, 99, 36, ry + 56, 280, COL_GREEN)
+        statBar("PAYLOAD kg",  r.payload_kg,       50000, 36, ry + 76, 280, COL_ACCENT)
+
+        for si, s in ipairs(r.stages) do
+            local sx = 420 + (si-1) * 190
+            drawRect(sx, ry + 10, 182, 88, COL_PANEL2)
+            drawRectLines(sx, ry + 10, 182, 88, COL_BORDER)
+            drawText(string.format("Stage %d: %s", si, s.name), sx + 6, ry + 18, 11, COL_DIM)
+            drawText(string.format("Thrust: %.0f kN", s.thrust_kn), sx + 6, ry + 34, 12, COL_TEXT)
+            drawText(string.format("Isp:    %.0f s",  s.isp),       sx + 6, ry + 50, 12, COL_TEXT)
+            if s.reusable then drawText("REUSABLE", sx + 6, ry + 68, 12, COL_GREEN) end
+        end
+
+        local rcol = r.reliability > 0.85 and COL_GREEN or (r.reliability > 0.70 and COL_GOLD or COL_RED)
+        drawText(string.format("Launches: %d  Successes: %d  Cost: $%.0fM  |  %.0f%% reliability",
+            r.launches, r.successes, r.cost_million, r.reliability * 100),
+            36, ry + 128, 13, rcol)
+
+        if mouseInAndClicked(20, ry, SCREEN_W - 40, 150) then gs.selected = i end
+    end
+
+    if button("+ DESIGN NEW ROCKET", 20, SCREEN_H - 96, 225, 44, COL_ORANGE) then
+        gs.screen   = SCREENS.ROCKET_DESIGN
         gs.selected = -1
-        gs.input_len = 0
-    }
+        gs.inputBuf = ""
+    end
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- ROCKET DESIGN
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+local ROCKET_CONFIGS = {
+    {name="Light Scout",    payload=500,   cost=25,  rel=0.88, stages=2, desc="Small payload. Good for probes."},
+    {name="Medium Lifter",  payload=3500,  cost=65,  rel=0.82, stages=2, desc="Balanced workhorse. Most missions."},
+    {name="Heavy Lift",     payload=15000, cost=140, rel=0.76, stages=3, desc="Large payloads. Stations, landers."},
+    {name="Super Heavy",    payload=50000, cost=320, rel=0.68, stages=3, desc="Mars and beyond. Very expensive."},
+    {name="Crewed Rocket",  payload=8000,  cost=120, rel=0.85, stages=3, desc="Crew safety optimized."},
+    {name="Reusable Booster",payload=6000, cost=90,  rel=0.87, stages=2, desc="First stage recovery. Lower ops cost."},
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// ROCKET DESIGN
-// ═══════════════════════════════════════════════════════════════════════════════
+function drawRocketDesign(gs)
+    local a = gs.agency
+    drawText("ROCKET DESIGN LAB", 20, 58, 22, COL_TEXT)
+    drawLine(20, 84, SCREEN_W - 20, 84, COL_BORDER)
+    drawText("Select base configuration:", 30, 98, 16, COL_DIM)
 
-draw_rocket_design :: proc(gs: ^GameState) {
-    a := &gs.agency
-    label("ROCKET DESIGN LAB", 20, 58, 24, COL_TEXT)
-    rl.DrawLine(20, 86, SCREEN_W-20, 86, COL_BORDER)
-    label("Select base configuration:", 30, 100, 18, COL_DIM)
+    for i, c in ipairs(ROCKET_CONFIGS) do
+        local cy  = 116 + (i-1) * 78
+        local sel = gs.selected == i
+        drawRect(30, cy, SCREEN_W - 260, 72, sel and {15/255,30/255,60/255,0.86} or COL_PANEL)
+        drawRectLines(30, cy, SCREEN_W - 260, 72, sel and COL_ACCENT or COL_BORDER)
+        drawText(c.name, 46, cy + 10, 18, sel and COL_ACCENT or COL_TEXT)
+        drawText(c.desc, 46, cy + 32, 13, COL_DIM)
+        drawText(string.format("Payload: %.0f kg  |  $%.0fM  |  %.0f%% rel  |  %d stages",
+            c.payload, c.cost, c.rel * 100, c.stages), 46, cy + 52, 12, COL_DIM)
+        if mouseInAndClicked(30, cy, SCREEN_W - 260, 72) then gs.selected = i end
+    end
 
-    configs := [5]RocketConfig{
-        {"Light Scout",    500,   25, 0.88, 2, "Small payload. Good for probes."},
-        {"Medium Lifter", 3500,   65, 0.82, 2, "Balanced workhorse. Most missions."},
-        {"Heavy Lift",   15000,  140, 0.76, 3, "Large payloads. Stations, landers."},
-        {"Super Heavy",  50000,  320, 0.68, 3, "Mars and beyond. Very expensive."},
-        {"Crewed Rocket", 8000,  120, 0.85, 3, "Crew safety optimized."},
-    }
+    -- Name input
+    drawText("Rocket Name:", 30, SCREEN_H - 172, 16, COL_DIM)
+    drawRect(30, SCREEN_H - 150, 400, 36, COL_PANEL2)
+    drawRectLines(30, SCREEN_H - 150, 400, 36, COL_ACCENT)
+    drawText(gs.inputBuf .. "|", 42, SCREEN_H - 141, 18, COL_TEXT)
 
-    for i in 0..<5 {
-        c := configs[i]
-        cy := f32(122 + i*84)
-        sel := gs.selected == i
-        rl.DrawRectangle(30, i32(cy), SCREEN_W-260, 76, sel ? rl.Color{15,30,60,220} : COL_PANEL)
-        rl.DrawRectangleLines(30, i32(cy), SCREEN_W-260, 76, sel ? COL_ACCENT : COL_BORDER)
-        rl.DrawText(tprint("%s", c.name), 46, i32(cy)+10, 20, sel ? COL_ACCENT : COL_TEXT)
-        rl.DrawText(tprint("%s", c.desc), 46, i32(cy)+34, 14, COL_DIM)
-        rl.DrawText(tprint("Payload: %.0f kg  |  $%.0fM  |  %.0f%% rel  |  %d stages",
-            c.payload, c.cost, c.rel*100, c.stages), 46, i32(cy)+54, 13, COL_DIM)
-        mx := i32(rl.GetMouseX())
-        my := i32(rl.GetMouseY())
-        if mx >= 30 && mx <= SCREEN_W-230 && my >= i32(cy) && my <= i32(cy)+76 && rl.IsMouseButtonPressed(.LEFT) {
-            gs.selected = i
-        }
-    }
+    local canBuild = gs.selected >= 1 and #gs.inputBuf > 0 and #a.rockets < 8
+    if gs.selected >= 1 then
+        local c    = ROCKET_CONFIGS[gs.selected]
+        local ccol = a.budget >= c.cost and COL_GREEN or COL_RED
+        drawText(string.format("Cost: $%.0fM", c.cost), 450, SCREEN_H - 141, 16, ccol)
+        canBuild = canBuild and a.budget >= c.cost
+    end
 
-    label("Rocket Name:", 30, f32(SCREEN_H)-168, 18, COL_DIM)
-    rl.DrawRectangle(30, i32(SCREEN_H)-144, 400, 38, COL_PANEL2)
-    rl.DrawRectangleLines(30, i32(SCREEN_H)-144, 400, 38, COL_ACCENT)
-    rl.DrawText(tprint("%s|", string(gs.input_buf[:gs.input_len])), 42, i32(SCREEN_H)-134, 20, COL_TEXT)
-    char := rl.GetCharPressed()
-    for char != 0 {
-        if gs.input_len < 30 && char >= 32 { gs.input_buf[gs.input_len] = u8(char); gs.input_len += 1 }
-        char = rl.GetCharPressed()
-    }
-    if rl.IsKeyPressed(.BACKSPACE) && gs.input_len > 0 { gs.input_len -= 1 }
-
-    can_build := gs.selected >= 0 && gs.input_len > 0 && a.rocket_count < 8
-    if gs.selected >= 0 {
-        c := configs[gs.selected]
-        ccol := a.budget >= int(c.cost) ? COL_GREEN : COL_RED
-        rl.DrawText(tprint("Cost: $%.0fM", c.cost), 450, i32(SCREEN_H)-134, 18, ccol)
-        can_build = can_build && a.budget >= int(c.cost)
-    }
-
-    if button("BUILD ROCKET", 30, f32(SCREEN_H)-90, 200, 44, COL_ORANGE, !can_build) {
-        c := configs[gs.selected]
-        a.budget -= int(c.cost)
-        r := RocketDesign{
-            id           = a.rocket_count + 1,
-            name         = strings.clone(string(gs.input_buf[:gs.input_len])),
-            stages       = {
-                RocketStage{"First Stage",  800, 290, 60, 6.0, false},
-                RocketStage{"Upper Stage",  100, 320, 12, 1.5, false},
-                RocketStage{"Third Stage",   20, 340,  3, 0.4, false},
+    if button("BUILD ROCKET", 30, SCREEN_H - 96, 200, 44, COL_ORANGE, not canBuild) then
+        local c = ROCKET_CONFIGS[gs.selected]
+        a.budget = a.budget - c.cost
+        local r = {
+            id           = #a.rockets + 1,
+            name         = gs.inputBuf,
+            stages = {
+                {name="First Stage",  thrust_kn=800, isp=290, fuel_tons=60, dry_mass=6.0, reusable=(c.name=="Reusable Booster")},
+                {name="Upper Stage",  thrust_kn=100, isp=320, fuel_tons=12, dry_mass=1.5, reusable=false},
+                {name="Third Stage",  thrust_kn=20,  isp=340, fuel_tons=3,  dry_mass=0.4, reusable=false},
             },
             stage_count  = c.stages,
             payload_kg   = c.payload,
             cost_million = c.cost,
             reliability  = c.rel,
             built        = true,
+            launches     = 0,
+            successes    = 0,
         }
-        a.rockets[a.rocket_count] = r
-        a.rocket_count += 1
-        push_notification(gs, fmt.tprintf("Rocket built: %s", r.name))
-        gs.screen = .Rockets
-        gs.input_len = 0
+        table.insert(a.rockets, r)
+        pushNotification(gs, "Rocket built: " .. r.name)
+        gs.screen   = SCREENS.ROCKETS
+        gs.inputBuf = ""
         gs.selected = -1
-    }
-    if button("<- CANCEL", 250, f32(SCREEN_H)-90, 130, 44, COL_DIM) {
-        gs.screen = .Rockets
-        gs.input_len = 0
+    end
+    if button("<- CANCEL", 250, SCREEN_H - 96, 130, 44, COL_DIM) then
+        gs.screen   = SCREENS.ROCKETS
+        gs.inputBuf = ""
         gs.selected = -1
-    }
+    end
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- ASTRONAUTS
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+local RECRUIT_POOL = {
+    {name="Elena Sorokina",  nat="RUS", pil=72, sci=80, eng=68, end_=75},
+    {name="Kwame Mensah",    nat="GHA", pil=65, sci=78, eng=82, end_=80},
+    {name="Yuki Tanaka",     nat="JPN", pil=80, sci=85, eng=75, end_=72},
+    {name="Lars Eriksson",   nat="SWE", pil=75, sci=70, eng=88, end_=85},
+    {name="Priya Sharma",    nat="IND", pil=68, sci=90, eng=72, end_=78},
+    {name="Omar Al-Rashid",  nat="UAE", pil=78, sci=74, eng=80, end_=82},
+    {name="Mei Lin",         nat="CHN", pil=85, sci=80, eng=77, end_=80},
+    {name="Amara Diallo",    nat="SEN", pil=70, sci=82, eng=75, end_=88},
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// ASTRONAUTS
-// ═══════════════════════════════════════════════════════════════════════════════
+function drawAstronauts(gs)
+    local a = gs.agency
+    drawText("ASTRONAUT CORPS", 20, 58, 22, COL_TEXT)
+    drawLine(20, 84, SCREEN_W - 20, 84, COL_BORDER)
 
-draw_astronauts :: proc(gs: ^GameState) {
-    a := &gs.agency
-    label("ASTRONAUT CORPS", 20, 58, 24, COL_TEXT)
-    rl.DrawLine(20, 86, SCREEN_W-20, 86, COL_BORDER)
+    local available = 0
+    for _, ast in ipairs(a.astronauts) do
+        if ast.status == "Available" then available = available + 1 end
+    end
+    drawText(string.format("Astronauts: %d  |  Available: %d", #a.astronauts, available), 20, 92, 15, COL_DIM)
 
-    available := 0
-    for i in 0..<a.astronaut_count { if a.astronauts[i].status == .Available { available += 1 } }
-    rl.DrawText(tprint("Astronauts: %d  |  Available: %d", a.astronaut_count, available), 20, 96, 16, COL_DIM)
+    for i, ast in ipairs(a.astronauts) do
+        local ay  = 112 + (i-1) * 108
+        if ay > SCREEN_H - 110 then break end
+        local sel = gs.selected == i
+        drawRect(20, ay, SCREEN_W - 40, 100, sel and {10/255,20/255,40/255,0.86} or COL_PANEL)
+        drawRectLines(20, ay, SCREEN_W - 40, 100, sel and COL_GREEN or COL_BORDER)
 
-    for i in 0..<a.astronaut_count {
-        ast := &a.astronauts[i]
-        ay := f32(116 + i*112)
-        if ay > f32(SCREEN_H) - 100 { break }
+        local sc = astronautStatusCol(ast.status)
+        drawRect(20, ay, 4, 100, sc)
 
-        sel := gs.selected == i
-        bg := sel ? rl.Color{10,20,40,220} : COL_PANEL
-        rl.DrawRectangle(20, i32(ay), SCREEN_W-40, 102, bg)
-        rl.DrawRectangleLines(20, i32(ay), SCREEN_W-40, 102, sel ? COL_GREEN : COL_BORDER)
+        drawText(ast.name, 34, ay + 8, 20, COL_TEXT)
+        drawText(string.format("%s  Age %d  %d missions", ast.nationality, ast.age, ast.missions_completed or 0),
+            34, ay + 32, 13, COL_DIM)
+        drawText(astronautStatusStr(ast.status), 34, ay + 54, 13, sc)
+        if ast.specialization then
+            drawText("SPEC: " .. ast.specialization, 34, ay + 72, 12, COL_PURPLE)
+        end
 
-        scol := astronaut_status_col(ast.status)
-        rl.DrawRectangle(20, i32(ay), 4, 102, scol)
+        local hw = (SCREEN_W - 40) / 4.5
+        statBar("PILOT",   ast.piloting,    99, 280, ay + 12, hw, COL_ACCENT)
+        statBar("SCIENCE", ast.science,     99, 280, ay + 30, hw, COL_CYAN)
+        statBar("ENG",     ast.engineering, 99, 280, ay + 48, hw, COL_ORANGE)
+        statBar("ENDUR.",  ast.endurance,   99, 280, ay + 66, hw, COL_GREEN)
 
-        rl.DrawText(tprint("%s", ast.name), 34, i32(ay)+10, 22, COL_TEXT)
-        rl.DrawText(tprint("%s  Age %d  %d missions", ast.nationality, ast.age, ast.experience), 34, i32(ay)+36, 14, COL_DIM)
-        rl.DrawText(tprint("%s", astronaut_status_str(ast.status)), 34, i32(ay)+56, 14, scol)
+        local ovr  = math.floor((ast.piloting + ast.science + ast.engineering + ast.endurance) / 4)
+        drawText(string.format("OVR %d", ovr), SCREEN_W - 120, ay + 28, 20, COL_GOLD)
+        local mcol = ast.morale > 60 and COL_GREEN or (ast.morale > 30 and COL_GOLD or COL_RED)
+        drawText(string.format("Morale %d%%", ast.morale), SCREEN_W - 120, ay + 58, 13, mcol)
 
-        hw := f32(SCREEN_W-40) / 4.5
-        stat_bar("PILOT",   f32(ast.piloting),   99, 300, ay+14, hw, COL_ACCENT)
-        stat_bar("SCIENCE", f32(ast.science),     99, 300, ay+34, hw, COL_CYAN)
-        stat_bar("ENG",     f32(ast.engineering), 99, 300, ay+54, hw, COL_ORANGE)
-        stat_bar("ENDUR.",  f32(ast.endurance),   99, 300, ay+74, hw, COL_GREEN)
+        -- Experience stars
+        local stars = math.min(ast.experience or 0, 5)
+        for si = 1, 5 do
+            local scol2 = si <= stars and COL_GOLD or COL_BORDER
+            drawText(si <= stars and "*" or ".", SCREEN_W - 200 + (si-1)*16, ay + 28, 18, scol2)
+        end
 
-        ovr := (ast.piloting + ast.science + ast.engineering + ast.endurance) / 4
-        rl.DrawText(tprint("OVR %d", ovr), SCREEN_W-120, i32(ay)+30, 22, COL_GOLD)
-        mcol := ast.morale > 60 ? COL_GREEN : (ast.morale > 30 ? COL_GOLD : COL_RED)
-        rl.DrawText(tprint("Morale %d%%", ast.morale), SCREEN_W-120, i32(ay)+60, 14, mcol)
+        if mouseInAndClicked(20, ay, SCREEN_W - 40, 100) then gs.selected = i end
+    end
 
-        mx := i32(rl.GetMouseX())
-        my := i32(rl.GetMouseY())
-        if mx >= 20 && mx <= SCREEN_W-20 && my >= i32(ay) && my <= i32(ay)+102 && rl.IsMouseButtonPressed(.LEFT) {
-            gs.selected = i
-        }
-    }
-
-    recruit_names := [5]string{"Elena Sorokina","Kwame Mensah","Yuki Tanaka","Lars Eriksson","Priya Sharma"}
-    recruit_nats  := [5]string{"RUS","GHA","JPN","SWE","IND"}
-
-    if button("+ RECRUIT ($30M)", 20, f32(SCREEN_H)-90, 230, 44, COL_GREEN, a.budget < 30 || a.astronaut_count >= 16) {
-        if a.budget >= 30 {
-            a.budget -= 30
-            idx := a.astronaut_count % 5
-            ast := Astronaut{
-                id          = a.astronaut_count + 1,
-                name        = recruit_names[idx],
-                nationality = recruit_nats[idx],
-                age         = 28 + int(rand.float32()*10),
-                piloting    = 55 + int(rand.float32()*30),
-                science     = 55 + int(rand.float32()*30),
-                engineering = 55 + int(rand.float32()*30),
-                endurance   = 55 + int(rand.float32()*30),
-                status      = .Available,
+    local canRecruit = a.budget >= 30 and #a.astronauts < 16
+    if button(string.format("+ RECRUIT ($30M)"), 20, SCREEN_H - 96, 230, 44, COL_GREEN, not canRecruit) then
+        if a.budget >= 30 then
+            a.budget = a.budget - 30
+            local idx  = (#a.astronauts % #RECRUIT_POOL) + 1
+            local pool = RECRUIT_POOL[idx]
+            local ast  = {
+                id          = #a.astronauts + 1,
+                name        = pool.name,
+                nationality = pool.nat,
+                age         = randInt(26, 38),
+                piloting    = pool.pil + randInt(-5, 5),
+                science     = pool.sci + randInt(-5, 5),
+                engineering = pool.eng + randInt(-5, 5),
+                endurance   = pool.end_ + randInt(-5, 5),
+                experience  = 0,
+                status      = "Available",
                 morale      = 80,
+                missions_completed   = 0,
+                total_flight_months  = 0,
             }
-            a.astronauts[a.astronaut_count] = ast
-            a.astronaut_count += 1
-            push_notification(gs, fmt.tprintf("Recruited: %s", ast.name))
-        }
-    }
-}
+            table.insert(a.astronauts, ast)
+            pushNotification(gs, "Recruited: " .. ast.name)
+        end
+    end
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// MISSIONS
-// ═══════════════════════════════════════════════════════════════════════════════
+    -- Assign specialization button for selected
+    if gs.selected >= 1 then
+        local ast = a.astronauts[gs.selected]
+        if ast and ast.status == "Available" and not ast.specialization and ast.experience >= 2 then
+            if button("ASSIGN SPEC", 270, SCREEN_H - 96, 180, 44, COL_PURPLE) then
+                -- Determine best stat
+                local stats = {
+                    {name="Pilot",    v=ast.piloting},
+                    {name="Scientist",v=ast.science},
+                    {name="Engineer", v=ast.engineering},
+                }
+                table.sort(stats, function(a2,b2) return a2.v > b2.v end)
+                ast.specialization = stats[1].name
+                pushNotification(gs, ast.name .. " specialized as " .. ast.specialization)
+            end
+        end
+    end
+end
 
-draw_missions :: proc(gs: ^GameState) {
-    a := &gs.agency
-    label("MISSION MANIFEST", 20, 58, 24, COL_TEXT)
-    rl.DrawLine(20, 86, SCREEN_W-20, 86, COL_BORDER)
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- MISSIONS
+-- ═══════════════════════════════════════════════════════════════════════════════
 
-    tab_labels := [4]cstring{"ALL", "ACTIVE", "COMPLETED", "FAILED"}
-    for i in 0..<4 {
-        tx := f32(20 + i*110)
-        active := gs.tab == i
-        tcol := active ? COL_GOLD : COL_DIM
-        rl.DrawRectangle(i32(tx), 94, 104, 24, active ? rl.Color{40,30,5,200} : COL_PANEL)
-        rl.DrawRectangleLines(i32(tx), 94, 104, 24, active ? COL_GOLD : COL_BORDER)
-        tw := rl.MeasureText(tab_labels[i], 14)
-        rl.DrawText(tab_labels[i], i32(tx)+(104-tw)/2, 101, 14, tcol)
-        mx := i32(rl.GetMouseX()); my := i32(rl.GetMouseY())
-        if mx >= i32(tx) && mx <= i32(tx)+104 && my >= 94 && my <= 118 && rl.IsMouseButtonPressed(.LEFT) {
-            gs.tab = i
-        }
-    }
+local MISSION_TABS = {"ALL", "ACTIVE", "COMPLETED", "FAILED"}
 
-    row := 0
-    for i in 0..<a.mission_count {
-        m := &a.missions[i]
-        show := false
-        switch gs.tab {
-        case 0: show = true
-        case 1: show = m.status == .InFlight || m.status == .ReadyToLaunch || m.status == .Planning
-        case 2: show = m.status == .Success
-        case 3: show = m.status == .Failure || m.status == .Aborted
-        }
-        if !show { continue }
+function drawMissions(gs)
+    local a = gs.agency
+    drawText("MISSION MANIFEST", 20, 58, 22, COL_TEXT)
+    drawLine(20, 84, SCREEN_W - 20, 84, COL_BORDER)
 
-        my2 := f32(126 + row*68)
-        if my2 > f32(SCREEN_H)-100 { break }
+    for i, lbl in ipairs(MISSION_TABS) do
+        local tx     = 20 + (i-1) * 110
+        local active = gs.tab == i
+        local tcol   = active and COL_GOLD or COL_DIM
+        drawRect(tx, 92, 106, 24, active and {40/255,30/255,5/255,0.78} or COL_PANEL)
+        drawRectLines(tx, 92, 106, 24, active and COL_GOLD or COL_BORDER)
+        drawTextCentered(lbl, tx, 99, 106, 13, tcol)
+        if mouseInAndClicked(tx, 92, 106, 24) then gs.tab = i end
+    end
 
-        scol := mission_status_col(m.status)
-        sel := gs.selected == i
-        rl.DrawRectangle(20, i32(my2), SCREEN_W-40, 62, sel ? rl.Color{10,18,36,220} : COL_PANEL)
-        rl.DrawRectangleLines(20, i32(my2), SCREEN_W-40, 62, sel ? scol : COL_BORDER)
-        rl.DrawRectangle(20, i32(my2), 4, 62, scol)
+    local row = 0
+    for i, m in ipairs(a.missions) do
+        local show = false
+        if gs.tab == 1 then show = true
+        elseif gs.tab == 2 then show = m.status == "InFlight" or m.status == "ReadyToLaunch" or m.status == "Planning"
+        elseif gs.tab == 3 then show = m.status == "Success"
+        elseif gs.tab == 4 then show = m.status == "Failure" or m.status == "Aborted"
+        end
+        if not show then goto cont end
 
-        rl.DrawText(tprint("%s", m.name), 32, i32(my2)+8, 20, COL_TEXT)
-        rl.DrawText(tprint("%s", mission_type_name(m.mission_type)), 32, i32(my2)+32, 14, COL_DIM)
-        rl.DrawText(tprint("%s", mission_status_str(m.status)), 280, i32(my2)+20, 16, scol)
+        local my2 = 124 + row * 66
+        if my2 > SCREEN_H - 110 then break end
 
-        if m.status == .InFlight {
-            progress := f32(m.elapsed) / f32(max(m.duration, 1))
-            rl.DrawRectangle(420, i32(my2)+20, 240, 14, COL_PANEL2)
-            rl.DrawRectangle(420, i32(my2)+20, i32(240*progress), 14, COL_ACCENT)
-            rl.DrawRectangleLines(420, i32(my2)+20, 240, 14, COL_BORDER)
-            rl.DrawText(tprint("Mo %d/%d", m.elapsed, m.duration), 668, i32(my2)+22, 13, COL_DIM)
-        }
+        local sc  = missionStatusCol(m.status)
+        local sel = gs.selected == i
+        drawRect(20, my2, SCREEN_W - 40, 60, sel and {10/255,18/255,36/255,0.86} or COL_PANEL)
+        drawRectLines(20, my2, SCREEN_W - 40, 60, sel and sc or COL_BORDER)
+        drawRect(20, my2, 4, 60, sc)
 
-        rl.DrawText(tprint("*%d  S%d  $%dM", m.prestige, m.science, m.cost), SCREEN_W-200, i32(my2)+20, 14, COL_GOLD)
-        rl.DrawText(tprint("-> %s", m.destination), SCREEN_W-200, i32(my2)+38, 13, COL_ACCENT)
+        drawText(m.name, 32, my2 + 6, 18, COL_TEXT)
+        drawText(missionTypeName(m.mission_type), 32, my2 + 30, 13, COL_DIM)
+        drawText(missionStatusStr(m.status), 280, my2 + 18, 15, sc)
 
-        mx3 := i32(rl.GetMouseX()); my3 := i32(rl.GetMouseY())
-        if mx3 >= 20 && mx3 <= SCREEN_W-20 && my3 >= i32(my2) && my3 <= i32(my2)+62 && rl.IsMouseButtonPressed(.LEFT) {
-            gs.selected = i
-            gs.prev_screen = .Missions
-            gs.screen = .MissionLog
-        }
-        row += 1
-    }
+        if m.status == "InFlight" then
+            local prog = m.elapsed / math.max(m.duration, 1)
+            drawRect(420, my2 + 18, 240, 14, COL_PANEL2)
+            drawRect(420, my2 + 18, 240 * prog, 14, COL_ACCENT)
+            drawRectLines(420, my2 + 18, 240, 14, COL_BORDER)
+            drawText(string.format("Mo %d/%d", m.elapsed, m.duration), 668, my2 + 20, 12, COL_DIM)
+        end
 
-    if button("+ PLAN MISSION", 20, f32(SCREEN_H)-90, 200, 44, COL_GOLD) {
-        gs.screen = .MissionPlan
+        drawText(string.format("*%d  S%d  $%dM", m.prestige, m.science, m.cost), SCREEN_W - 200, my2 + 18, 13, COL_GOLD)
+        drawText("-> " .. m.destination, SCREEN_W - 200, my2 + 36, 12, COL_ACCENT)
+
+        if mouseInAndClicked(20, my2, SCREEN_W - 40, 60) then
+            gs.selected    = i
+            gs.prevScreen  = SCREENS.MISSIONS
+            gs.screen      = SCREENS.MISSION_LOG
+        end
+        row = row + 1
+        ::cont::
+    end
+
+    if button("+ PLAN MISSION", 20, SCREEN_H - 96, 200, 44, COL_GOLD) then
+        gs.screen    = SCREENS.MISSION_PLAN
         gs.selected  = -1
         gs.selected2 = -1
-        gs.input_len = 0
-    }
-}
+        gs.inputBuf  = ""
+    end
+end
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// MISSION PLAN
-// ═══════════════════════════════════════════════════════════════════════════════
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- MISSION PLAN
+-- ═══════════════════════════════════════════════════════════════════════════════
 
-draw_mission_plan :: proc(gs: ^GameState) {
-    a := &gs.agency
-    label("PLAN NEW MISSION", 20, 58, 24, COL_TEXT)
-    rl.DrawLine(20, 86, SCREEN_W-20, 86, COL_BORDER)
+function drawMissionPlan(gs)
+    local a = gs.agency
+    drawText("PLAN NEW MISSION", 20, 58, 22, COL_TEXT)
+    drawLine(20, 84, SCREEN_W - 20, 84, COL_BORDER)
 
-    section_line("MISSION TYPE", 94)
-    all_types := [12]MissionType{
-        .OrbitalTest, .SatelliteNetwork, .CrewedOrbit,
-        .LunarFlyby, .LunarOrbit, .LunarLanding,
-        .MarsProbe, .MarsOrbiter, .MarsSurface,
-        .AsteroidProbe, .SpaceStation, .DeepSpaceProbe,
-    }
-    cols :: 4
-    mt_w := f32(SCREEN_W-40) / cols
-    mt_h :: f32(56)
+    sectionLine("MISSION TYPE", 92)
+    local cols = 5
+    local mt_w = (SCREEN_W - 40) / cols
+    local mt_h = 52
 
-    for i in 0..<12 {
-        t := all_types[i]
-        tx := f32(20) + f32(i%cols)*mt_w
-        ty := f32(106) + f32(i/cols)*mt_h
-        sel := gs.selected == i
+    for i, mtype in ipairs(MISSION_TYPES) do
+        local tx = 20 + ((i-1) % cols) * mt_w
+        local ty = 102 + math.floor((i-1) / cols) * mt_h
+        local sel = gs.selected == i
+        local tcol
+        if mtype:find("Lunar") then tcol = COL_GOLD
+        elseif mtype:find("Mars") then tcol = COL_RED
+        elseif mtype == "CrewedOrbit" or mtype == "SpaceStation" then tcol = COL_GREEN
+        elseif mtype:find("Deep") or mtype:find("Asteroid") then tcol = COL_PURPLE
+        elseif mtype:find("Venus") or mtype:find("Jupiter") or mtype:find("Saturn") then tcol = COL_CYAN
+        else tcol = COL_ACCENT end
 
-        tcol: rl.Color
-        #partial switch t {
-        case .LunarFlyby, .LunarOrbit, .LunarLanding:  tcol = COL_GOLD
-        case .MarsProbe, .MarsOrbiter, .MarsSurface:    tcol = COL_RED
-        case .CrewedOrbit, .SpaceStation:               tcol = COL_GREEN
-        case .DeepSpaceProbe, .AsteroidProbe:           tcol = COL_PURPLE
-        case:                                            tcol = COL_ACCENT
-        }
-        bg := sel ? rl.Color{tcol.r/5, tcol.g/5, tcol.b/5, 220} : COL_PANEL
-        rl.DrawRectangle(i32(tx), i32(ty), i32(mt_w)-4, i32(mt_h)-4, bg)
-        rl.DrawRectangleLines(i32(tx), i32(ty), i32(mt_w)-4, i32(mt_h)-4, sel ? tcol : COL_BORDER)
-        name := mission_type_name(t)
-        nw := rl.MeasureText(tprint("%s", name), 15)
-        rl.DrawText(tprint("%s", name), i32(tx) + (i32(mt_w)-4-nw)/2, i32(ty)+9, 15, sel ? tcol : COL_TEXT)
-        rl.DrawText(tprint("*%d", mission_prestige(t)), i32(tx)+6, i32(ty)+29, 13, COL_GOLD)
-        rl.DrawText(tprint("%dmo", mission_duration(t)), i32(tx)+i32(mt_w)-44, i32(ty)+29, 13, COL_DIM)
+        drawRect(tx, ty, mt_w - 4, mt_h - 4, sel and colorWithAlpha(tcol, 0.18) or COL_PANEL)
+        drawRectLines(tx, ty, mt_w - 4, mt_h - 4, sel and tcol or COL_BORDER)
+        drawTextCentered(missionTypeName(mtype), tx, ty + 7, mt_w - 4, 13, sel and tcol or COL_TEXT)
+        drawText(string.format("*%d", missionPrestige(mtype)), tx + 4, ty + 28, 11, COL_GOLD)
+        drawText(string.format("%dmo", missionDuration(mtype)), tx + mt_w - 36, ty + 28, 11, COL_DIM)
+        if mouseInAndClicked(tx, ty, mt_w - 4, mt_h - 4) then gs.selected = i end
+    end
 
-        mx := i32(rl.GetMouseX()); my := i32(rl.GetMouseY())
-        if mx >= i32(tx) && mx <= i32(tx)+i32(mt_w)-4 && my >= i32(ty) && my <= i32(ty)+i32(mt_h)-4 && rl.IsMouseButtonPressed(.LEFT) {
-            gs.selected = i
-        }
-    }
+    local rowCount = math.ceil(#MISSION_TYPES / cols)
+    local bottomY  = 102 + rowCount * mt_h + 10
 
-    bottom_y := f32(106) + f32(3)*mt_h + 12
+    -- Rocket selector
+    sectionLine("ROCKET", bottomY)
+    for i, r in ipairs(a.rockets) do
+        local rx  = 20 + (i-1) * 220
+        if rx > SCREEN_W - 220 then break end
+        local sel = gs.selected2 == i
+        drawRect(rx, bottomY + 12, 214, 50, sel and {15/255,30/255,60/255,0.86} or COL_PANEL)
+        drawRectLines(rx, bottomY + 12, 214, 50, sel and COL_ACCENT or COL_BORDER)
+        drawText(r.name, rx + 6, bottomY + 20, 14, sel and COL_ACCENT or COL_TEXT)
+        drawText(string.format("%.0f%% rel  %.0fkg PL", r.reliability*100, r.payload_kg), rx + 6, bottomY + 40, 12, COL_DIM)
+        if mouseInAndClicked(rx, bottomY + 12, 214, 50) then gs.selected2 = i end
+    end
 
-    // Rocket selector
-    section_line("ROCKET", bottom_y)
-    for i in 0..<a.rocket_count {
-        r := &a.rockets[i]
-        rx := f32(20 + i*222)
-        if rx > f32(SCREEN_W)-222 { break }
-        sel := gs.selected2 == i
-        rl.DrawRectangle(i32(rx), i32(bottom_y)+14, 216, 52, sel ? rl.Color{15,30,60,220} : COL_PANEL)
-        rl.DrawRectangleLines(i32(rx), i32(bottom_y)+14, 216, 52, sel ? COL_ACCENT : COL_BORDER)
-        rl.DrawText(tprint("%s", r.name), i32(rx)+8, i32(bottom_y)+22, 16, sel ? COL_ACCENT : COL_TEXT)
-        rl.DrawText(tprint("%.0f%% rel  %.0fkg PL", r.reliability*100, r.payload_kg), i32(rx)+8, i32(bottom_y)+44, 13, COL_DIM)
-        mx := i32(rl.GetMouseX()); my := i32(rl.GetMouseY())
-        if mx >= i32(rx) && mx <= i32(rx)+216 && my >= i32(bottom_y)+14 && my <= i32(bottom_y)+66 && rl.IsMouseButtonPressed(.LEFT) {
-            gs.selected2 = i
-        }
-    }
+    -- Mission name
+    local nameY = bottomY + 72
+    sectionLine("MISSION NAME", nameY)
+    drawRect(20, nameY + 12, 400, 34, COL_PANEL2)
+    drawRectLines(20, nameY + 12, 400, 34, COL_ACCENT)
+    drawText(gs.inputBuf .. "|", 30, nameY + 19, 16, COL_TEXT)
 
-    name_y := bottom_y + 78
-    section_line("MISSION NAME", name_y)
-    rl.DrawRectangle(20, i32(name_y)+14, 400, 36, COL_PANEL2)
-    rl.DrawRectangleLines(20, i32(name_y)+14, 400, 36, COL_ACCENT)
-    rl.DrawText(tprint("%s|", string(gs.input_buf[:gs.input_len])), 30, i32(name_y)+22, 18, COL_TEXT)
-    char := rl.GetCharPressed()
-    for char != 0 {
-        if gs.input_len < 32 && char >= 32 { gs.input_buf[gs.input_len] = u8(char); gs.input_len += 1 }
-        char = rl.GetCharPressed()
-    }
-    if rl.IsKeyPressed(.BACKSPACE) && gs.input_len > 0 { gs.input_len -= 1 }
+    -- Preview stats
+    if gs.selected >= 1 and gs.selected2 >= 1 then
+        local mtype = MISSION_TYPES[gs.selected]
+        local r     = a.rockets[gs.selected2]
+        local cost  = missionCost(mtype, r)
+        local chance = missionBaseChance(mtype, r, a)
+        local ccol  = a.budget >= cost and COL_GREEN or COL_RED
+        drawText(string.format("$%dM  |  %.0f%% success  |  %d months  |  *%d prestige",
+            cost, chance*100, missionDuration(mtype), missionPrestige(mtype)),
+            430, nameY + 19, 13, ccol)
+    end
 
-    // Preview
-    if gs.selected >= 0 && gs.selected2 >= 0 {
-        t := all_types[gs.selected]
-        r := &a.rockets[gs.selected2]
-        cost := mission_cost(t, r)
-        chance := mission_base_chance(t, r, a)
-        ccol := a.budget >= cost ? COL_GREEN : COL_RED
-        rl.DrawText(tprint("$%dM  |  %.0f%% success  |  %d months  |  *%d prestige",
-            cost, chance*100, mission_duration(t), mission_prestige(t)),
-            430, i32(name_y)+22, 14, ccol)
-    }
+    -- Crew assignment for crewed missions
+    if gs.selected >= 1 then
+        local mtype = MISSION_TYPES[gs.selected]
+        if missionNeedsCrew(mtype) then
+            drawText("CREWED MISSION: Assign astronauts on the Crew tab before launch.", 20, nameY + 54, 13, COL_GOLD)
+        end
+    end
 
-    can_plan := gs.selected >= 0 && gs.selected2 >= 0 && gs.input_len > 0 && a.mission_count < 32
-    if can_plan && gs.selected >= 0 && gs.selected2 >= 0 {
-        t := all_types[gs.selected]
-        r := &a.rockets[gs.selected2]
-        can_plan = a.budget >= mission_cost(t, r)
-    }
+    local canPlan = gs.selected >= 1 and gs.selected2 >= 1 and #gs.inputBuf > 0 and #a.missions < 32
+    if canPlan and gs.selected >= 1 and gs.selected2 >= 1 then
+        local mtype = MISSION_TYPES[gs.selected]
+        local r     = a.rockets[gs.selected2]
+        canPlan = a.budget >= missionCost(mtype, r)
+    end
 
-    if button("APPROVE MISSION", 20, f32(SCREEN_H)-90, 220, 44, COL_GOLD, !can_plan) {
-        t := all_types[gs.selected]
-        r := &a.rockets[gs.selected2]
-        cost := mission_cost(t, r)
-        a.budget -= cost
-        r.launches += 1
+    if button("APPROVE MISSION", 20, SCREEN_H - 96, 220, 44, COL_GOLD, not canPlan) then
+        local mtype  = MISSION_TYPES[gs.selected]
+        local r      = a.rockets[gs.selected2]
+        local cost   = missionCost(mtype, r)
+        a.budget     = a.budget - cost
+        r.launches   = r.launches + 1
 
-        m := Mission{
-            id             = a.mission_count + 1,
-            name           = strings.clone(string(gs.input_buf[:gs.input_len])),
-            mission_type   = t,
-            status         = .InFlight,
+        local m = {
+            id             = #a.missions + 1,
+            name           = gs.inputBuf,
+            mission_type   = mtype,
+            status         = "InFlight",
             rocket_id      = r.id,
+            crew           = {},
+            crew_count     = 0,
             launch_month   = a.month,
-            duration       = mission_duration(t),
-            success_chance = mission_base_chance(t, r, a),
-            prestige       = mission_prestige(t),
-            science        = mission_prestige(t) / 2,
+            duration       = missionDuration(mtype),
+            elapsed        = 0,
+            success_chance = missionBaseChance(mtype, r, a),
+            prestige       = missionPrestige(mtype),
+            science        = math.floor(missionPrestige(mtype) / 2),
             cost           = cost,
-            destination    = mission_destination(t),
+            log            = {},
+            destination    = missionDestination(mtype),
         }
-        append_mission_log(&m, fmt.tprintf("Launch: %s %d. Rocket: %s. Chance: %.0f%%",
-            month_name(a.month), a.year, r.name, m.success_chance*100))
-        a.missions[a.mission_count] = m
-        a.mission_count += 1
-        a.prestige += 2
-        push_notification(gs, fmt.tprintf("Mission launched: %s", m.name))
-        gs.screen = .Missions
-        gs.selected = -1; gs.selected2 = -1; gs.input_len = 0
+        appendMissionLog(m, string.format("Launch: %s %d. Rocket: %s. Chance: %.0f%%",
+            monthName(a.month), a.year, r.name, m.success_chance * 100))
+        table.insert(a.missions, m)
+        a.prestige   = a.prestige + 2
+        pushNotification(gs, "Mission launched: " .. m.name)
+        gs.screen    = SCREENS.MISSIONS
+        gs.selected  = -1
+        gs.selected2 = -1
+        gs.inputBuf  = ""
+    end
+    if button("<- CANCEL", 260, SCREEN_H - 96, 130, 44, COL_DIM) then
+        gs.screen    = SCREENS.MISSIONS
+        gs.selected  = -1
+        gs.selected2 = -1
+        gs.inputBuf  = ""
+    end
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- MISSION LOG
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+function drawMissionLog(gs)
+    local a = gs.agency
+    if gs.selected < 1 or gs.selected > #a.missions then gs.screen = SCREENS.MISSIONS; return end
+    local m = a.missions[gs.selected]
+
+    drawText("MISSION LOG", 20, 58, 22, COL_TEXT)
+    drawLine(20, 84, SCREEN_W - 20, 84, COL_BORDER)
+
+    local sc = missionStatusCol(m.status)
+    drawText(m.name, 20, 92, 24, sc)
+    drawText(missionTypeName(m.mission_type) .. "  ->  " .. m.destination, 20, 120, 15, COL_DIM)
+
+    local statsData = {
+        {l="Status",   v=missionStatusStr(m.status),                    c=sc},
+        {l="Elapsed",  v=string.format("%d / %d mo", m.elapsed, m.duration), c=COL_TEXT},
+        {l="Chance",   v=string.format("%.0f%%", m.success_chance*100), c=COL_ACCENT},
+        {l="Prestige", v=string.format("* %d", m.prestige),             c=COL_GOLD},
+        {l="Science",  v=string.format("S %d", m.science),              c=COL_CYAN},
+        {l="Cost",     v=string.format("$%dM", m.cost),                 c=COL_RED},
     }
-    if button("<- CANCEL", 260, f32(SCREEN_H)-90, 130, 44, COL_DIM) {
-        gs.screen = .Missions
-        gs.selected = -1; gs.selected2 = -1; gs.input_len = 0
+    local sw = (SCREEN_W - 40) / 6
+    for i, s in ipairs(statsData) do
+        local sx = 20 + (i-1) * sw
+        drawRect(sx, 146, sw - 4, 52, COL_PANEL)
+        drawRectLines(sx, 146, sw - 4, 52, COL_BORDER)
+        drawText(s.l, sx + 6, 154, 12, COL_DIM)
+        drawText(s.v, sx + 6, 170, 16, s.c)
+    end
+
+    if m.status == "InFlight" then
+        local prog = m.elapsed / math.max(m.duration, 1)
+        drawRect(20, 206, SCREEN_W - 40, 16, COL_PANEL2)
+        drawRect(20, 206, (SCREEN_W - 40) * prog, 16, COL_ACCENT)
+        drawRectLines(20, 206, SCREEN_W - 40, 16, COL_BORDER)
+    end
+
+    sectionLine("FLIGHT LOG", 232)
+    for i = 1, #m.log do
+        local idx  = #m.log - i + 1
+        local ly   = 246 + (i-1) * 20
+        if ly > SCREEN_H - 110 then break end
+        local entry = m.log[idx]
+        local lcol  = COL_DIM
+        if entry:find("CRITICAL") or entry:find("lost") then lcol = COL_RED end
+        if entry:find("SUCCESS")  or entry:find("returned") then lcol = COL_GREEN end
+        drawText(entry, 28, ly, 13, lcol)
+    end
+
+    if button("<- MISSIONS", 20, SCREEN_H - 96, 200, 44, COL_DIM) then
+        gs.screen = SCREENS.MISSIONS
+    end
+    if m.status == "InFlight" or m.status == "ReadyToLaunch" then
+        if button("ABORT MISSION", SCREEN_W - 222, SCREEN_H - 96, 202, 44, COL_RED) then
+            m.status = "Aborted"
+            for _, aid in ipairs(m.crew or {}) do
+                for _, ast in ipairs(a.astronauts) do
+                    if ast.id == aid then ast.status = "Available" end
+                end
+            end
+            pushNotification(gs, "Mission aborted: " .. m.name)
+        end
+    end
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- RESEARCH
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+function drawResearch(gs)
+    local a = gs.agency
+    drawText("RESEARCH & DEVELOPMENT", 20, 58, 22, COL_TEXT)
+    drawLine(20, 84, SCREEN_W - 20, 84, COL_BORDER)
+    drawText(string.format("Science Points: %d", a.science_pts), 20, 92, 16, COL_CYAN)
+
+    for i, r in ipairs(a.research) do
+        local ry = 114 + (i-1) * 82
+        if ry > SCREEN_H - 110 then break end
+
+        local inProg = not r.completed and r.progress > 0
+        local bg
+        if r.completed then bg = {5/255, 20/255, 10/255, 0.78}
+        elseif inProg   then bg = {15/255, 15/255, 30/255, 0.78}
+        else bg = COL_PANEL end
+
+        -- Check prereq
+        local prereqMet = true
+        if r.prereq then
+            prereqMet = false
+            for _, cr in ipairs(a.completed_research or {}) do
+                if cr == r.prereq then prereqMet = true; break end
+            end
+        end
+
+        drawRect(20, ry, SCREEN_W - 40, 76, bg)
+        local borderC = r.completed and COL_GREEN or (inProg and COL_ACCENT or (prereqMet and COL_BORDER or {40/255,20/255,20/255,1}))
+        drawRectLines(20, ry, SCREEN_W - 40, 76, borderC)
+
+        local acol = researchAreaCol(r.area)
+        drawRect(20, ry, 6, 76, acol)
+
+        drawText(researchAreaName(r.area), 34, ry + 6,  12, acol)
+        drawText(r.name,                   34, ry + 22, 18, r.completed and COL_GREEN or COL_TEXT)
+        drawText(r.description,            34, ry + 46, 13, COL_DIM)
+
+        -- Prereq indicator
+        if r.prereq and not prereqMet then
+            drawText("Requires: " .. r.prereq, 34, ry + 62, 11, COL_RED)
+        end
+
+        if inProg then
+            local prog = r.progress / r.duration
+            drawRect(480, ry + 18, 300, 13, COL_PANEL2)
+            drawRect(480, ry + 18, 300 * prog, 13, acol)
+            drawRectLines(480, ry + 18, 300, 13, COL_BORDER)
+            drawText(string.format("Mo %.0f/%d", r.progress, r.duration), 788, ry + 20, 12, COL_DIM)
+        end
+
+        drawText("Unlocks: " .. r.unlock, SCREEN_W - 285, ry + 24, 13, acol)
+        drawText(string.format("$%dM  |  %d months", r.cost, r.duration), SCREEN_W - 285, ry + 46, 12, COL_DIM)
+
+        if r.completed then
+            drawText("COMPLETE", SCREEN_W - 108, ry + 28, 14, COL_GREEN)
+        elseif inProg then
+            drawText("IN PROG.", SCREEN_W - 108, ry + 28, 13, COL_ACCENT)
+        else
+            local canFund = a.budget >= r.cost and prereqMet
+            if button("FUND", SCREEN_W - 108, ry + 18, 82, 34, acol, not canFund) then
+                if canFund then
+                    a.budget     = a.budget - r.cost
+                    r.progress   = 1
+                    pushNotification(gs, "Research started: " .. r.name)
+                end
+            end
+        end
+    end
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- STAR MAP
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+function drawStarMap(gs)
+    drawText("SOLAR SYSTEM MAP", 20, 58, 22, COL_TEXT)
+    drawLine(20, 84, SCREEN_W - 20, 84, COL_BORDER)
+
+    local vx = 20
+    local vy = 92
+    local vw = SCREEN_W * 0.62
+    local vh = SCREEN_H - 195
+
+    drawRect(vx, vy, vw, vh, {4/255, 6/255, 14/255, 1})
+    drawRectLines(vx, vy, vw, vh, COL_BORDER)
+
+    -- Draw extra star field inside map
+    setColor({200/255, 210/255, 255/255, 0.25})
+    for i = 1, 60 do
+        local sx = vx + (math.sin(i * 7.3) * 0.5 + 0.5) * vw
+        local sy = vy + (math.sin(i * 3.7) * 0.5 + 0.5) * vh
+        love.graphics.circle("fill", sx, sy, 0.8)
+    end
+
+    -- Sun
+    local sun_x = vx + vw * 0.10
+    local sun_y = vy + vh * 0.50
+    -- Sun glow
+    for i = 5, 1, -1 do
+        setColor({255/255, 180/255, 30/255, 0.04 * i})
+        love.graphics.circle("fill", sun_x, sun_y, 16 + i * 8)
+    end
+    drawCircle(sun_x, sun_y, 16, {255/255, 200/255, 50/255, 1})
+    drawText("SOL", sun_x - 12, sun_y + 20, 12, COL_GOLD)
+
+    for i, b in ipairs(gs.bodies) do
+        local bx = sun_x + math.cos(b.orbit_angle) * (vw * b.orbit_r * 0.88)
+        local by = sun_y + math.sin(b.orbit_angle) * (vh * b.orbit_r * 0.36)
+
+        drawEllipseLines(sun_x, sun_y, vw*b.orbit_r*0.88, vh*b.orbit_r*0.36, {28/255,38/255,58/255,0.31})
+
+        local size = 5
+        if b.name == "Jupiter"  then size = 13
+        elseif b.name == "Saturn"  then size = 11
+        elseif b.name == "Earth" or b.name == "Venus" then size = 7
+        elseif b.name == "Moon" or b.name == "Phobos" or b.name == "Ceres" then size = 3
+        end
+
+        local col = b.color
+        if b.landed       then col = COL_GREEN
+        elseif b.orbited  then col = COL_CYAN
+        elseif b.probed   then col = COL_GOLD end
+
+        if b.explored then
+            setColor(colorWithAlpha(col, 0.2))
+            love.graphics.circle("fill", bx, by, size + 6)
+        end
+        drawCircle(bx, by, size, col)
+
+        local mx, my = love.mouse.getPosition()
+        local dist   = math.sqrt((mx-bx)^2 + (my-by)^2)
+        local showLabel = dist < 22 or gs.selected == i
+        if showLabel then
+            drawText(b.name, bx + size + 3, by - 7, 12, gs.selected == i and COL_WHITE or COL_DIM)
+            if mouseInAndClicked(bx - size - 2, by - size - 2, size * 2 + 4, size * 2 + 4) then
+                gs.selected = i
+            end
+        end
+    end
+
+    -- Legend
+    local legendItems = {
+        {col=COL_GREEN, lbl="Landed"},
+        {col=COL_CYAN,  lbl="Orbited"},
+        {col=COL_GOLD,  lbl="Probed"},
+        {col=COL_DIM,   lbl="Unexplored"},
     }
-}
+    for i, li in ipairs(legendItems) do
+        local lx = vx + 8
+        local ly = vy + vh - 20 - (i-1) * 17
+        drawCircle(lx + 5, ly + 5, 4, li.col)
+        drawText(li.lbl, lx + 13, ly, 12, COL_DIM)
+    end
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// MISSION LOG
-// ═══════════════════════════════════════════════════════════════════════════════
-
-draw_mission_log :: proc(gs: ^GameState) {
-    a := &gs.agency
-    if gs.selected < 0 || gs.selected >= a.mission_count { gs.screen = .Missions; return }
-    m := &a.missions[gs.selected]
-
-    label("MISSION LOG", 20, 58, 24, COL_TEXT)
-    rl.DrawLine(20, 86, SCREEN_W-20, 86, COL_BORDER)
-
-    scol := mission_status_col(m.status)
-    rl.DrawText(tprint("%s", m.name), 20, 96, 26, scol)
-    rl.DrawText(tprint("%s  ->  %s", mission_type_name(m.mission_type), m.destination), 20, 126, 16, COL_DIM)
-
-    // Stats panels
-    StatItem :: struct { l: string, v: string, c: rl.Color }
-    stats := [6]StatItem{
-        {"Status",   mission_status_str(m.status),                    scol},
-        {"Elapsed",  fmt.tprintf("%d / %d mo", m.elapsed, m.duration),COL_TEXT},
-        {"Chance",   fmt.tprintf("%.0f%%", m.success_chance*100),     COL_ACCENT},
-        {"Prestige", fmt.tprintf("* %d", m.prestige),                 COL_GOLD},
-        {"Science",  fmt.tprintf("S %d", m.science),                  COL_CYAN},
-        {"Cost",     fmt.tprintf("$%dM", m.cost),                     COL_RED},
-    }
-    sw3 := f32(SCREEN_W-40) / 6
-    for i in 0..<6 {
-        sx := f32(20) + f32(i)*sw3
-        rl.DrawRectangle(i32(sx), 150, i32(sw3)-4, 54, COL_PANEL)
-        rl.DrawRectangleLines(i32(sx), 150, i32(sw3)-4, 54, COL_BORDER)
-        rl.DrawText(tprint("%s", stats[i].l), i32(sx)+8, 160, 13, COL_DIM)
-        rl.DrawText(tprint("%s", stats[i].v), i32(sx)+8, 178, 18, stats[i].c)
-    }
-
-    if m.status == .InFlight {
-        progress := f32(m.elapsed) / f32(max(m.duration, 1))
-        rl.DrawRectangle(20, 212, SCREEN_W-40, 18, COL_PANEL2)
-        rl.DrawRectangle(20, 212, i32(f32(SCREEN_W-40)*progress), 18, COL_ACCENT)
-        rl.DrawRectangleLines(20, 212, SCREEN_W-40, 18, COL_BORDER)
-    }
-
-    section_line("FLIGHT LOG", 240)
-    for i in 0..<m.log_count {
-        idx := m.log_count - 1 - i
-        ly := f32(256 + i*22)
-        if ly > f32(SCREEN_H)-100 { break }
-        lcol := COL_DIM
-        entry := m.log[idx]
-        if strings.contains(entry, "CRITICAL") || strings.contains(entry, "lost") { lcol = COL_RED }
-        if strings.contains(entry, "SUCCESS")  || strings.contains(entry, "returned") { lcol = COL_GREEN }
-        rl.DrawText(tprint("%s", entry), 28, i32(ly), 14, lcol)
-    }
-
-    if button("<- MISSIONS", 20, f32(SCREEN_H)-90, 200, 44, COL_DIM) { gs.screen = .Missions }
-    if m.status == .InFlight || m.status == .ReadyToLaunch {
-        if button("ABORT MISSION", f32(SCREEN_W)-220, f32(SCREEN_H)-90, 200, 44, COL_RED) {
-            m.status = .Aborted
-            for j in 0..<m.crew_count {
-                aid := m.crew[j]
-                for k in 0..<a.astronaut_count {
-                    if a.astronauts[k].id == aid { a.astronauts[k].status = .Available }
-                }
-            }
-            push_notification(gs, fmt.tprintf("Mission aborted: %s", m.name))
-        }
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// RESEARCH
-// ═══════════════════════════════════════════════════════════════════════════════
-
-draw_research :: proc(gs: ^GameState) {
-    a := &gs.agency
-    label("RESEARCH & DEVELOPMENT", 20, 58, 24, COL_TEXT)
-    rl.DrawLine(20, 86, SCREEN_W-20, 86, COL_BORDER)
-    rl.DrawText(tprint("Science Points: %d", a.science_pts), 20, 96, 18, COL_CYAN)
-
-    for i in 0..<a.research_count {
-        r := &a.research[i]
-        ry := f32(118 + i*86)
-        if ry > f32(SCREEN_H)-100 { break }
-
-        in_prog := !r.completed && r.progress > 0
-        bg := r.completed ? rl.Color{5,20,10,200} : (in_prog ? rl.Color{15,15,30,200} : COL_PANEL)
-        rl.DrawRectangle(20, i32(ry), SCREEN_W-40, 78, bg)
-        rl.DrawRectangleLines(20, i32(ry), SCREEN_W-40, 78, r.completed ? COL_GREEN : (in_prog ? COL_ACCENT : COL_BORDER))
-
-        acol := research_area_col(r.area)
-        rl.DrawRectangle(20, i32(ry), 6, 78, acol)
-
-        rl.DrawText(tprint("%s", research_area_name(r.area)), 36, i32(ry)+8, 13, acol)
-        rl.DrawText(tprint("%s", r.name), 36, i32(ry)+26, 20, r.completed ? COL_GREEN : COL_TEXT)
-        rl.DrawText(tprint("%s", r.description), 36, i32(ry)+50, 14, COL_DIM)
-
-        if in_prog {
-            prog := f32(r.progress) / f32(r.duration)
-            rl.DrawRectangle(500, i32(ry)+20, 300, 14, COL_PANEL2)
-            rl.DrawRectangle(500, i32(ry)+20, i32(300*prog), 14, acol)
-            rl.DrawRectangleLines(500, i32(ry)+20, 300, 14, COL_BORDER)
-            rl.DrawText(tprint("Mo %d/%d", r.progress, r.duration), 808, i32(ry)+22, 13, COL_DIM)
-        }
-
-        rl.DrawText(tprint("Unlocks: %s", r.unlock), SCREEN_W-280, i32(ry)+28, 14, acol)
-        rl.DrawText(tprint("$%dM  |  %d months", r.cost, r.duration), SCREEN_W-280, i32(ry)+50, 13, COL_DIM)
-
-        if r.completed {
-            rl.DrawText("COMPLETE", SCREEN_W-110, i32(ry)+30, 15, COL_GREEN)
-        } else if in_prog {
-            rl.DrawText("IN PROG.", SCREEN_W-110, i32(ry)+30, 14, COL_ACCENT)
-        } else {
-            can := a.budget >= r.cost
-            if button("FUND", f32(SCREEN_W)-110, ry+18, 80, 34, acol, !can) {
-                if can {
-                    a.budget -= r.cost
-                    r.progress = 1
-                    push_notification(gs, fmt.tprintf("Research started: %s", r.name))
-                }
-            }
-        }
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// STAR MAP
-// ═══════════════════════════════════════════════════════════════════════════════
-
-draw_star_map :: proc(gs: ^GameState) {
-    label("SOLAR SYSTEM MAP", 20, 58, 24, COL_TEXT)
-    rl.DrawLine(20, 86, SCREEN_W-20, 86, COL_BORDER)
-
-    vx := f32(20)
-    vy := f32(96)
-    vw := f32(SCREEN_W) * 0.62
-    vh := f32(SCREEN_H) - 200
-
-    rl.DrawRectangle(i32(vx), i32(vy), i32(vw), i32(vh), rl.Color{4, 6, 14, 255})
-    rl.DrawRectangleLines(i32(vx), i32(vy), i32(vw), i32(vh), COL_BORDER)
-
-    // Sun
-    sun_x := vx + vw * 0.10
-    sun_y := vy + vh * 0.50
-    rl.DrawCircle(i32(sun_x), i32(sun_y), 18, rl.Color{255, 200, 50, 255})
-    rl.DrawCircle(i32(sun_x), i32(sun_y), 28, rl.Color{255, 150, 30, 50})
-    rl.DrawText("SOL", i32(sun_x)-14, i32(sun_y)+22, 13, COL_GOLD)
-
-    // Bodies
-    for i in 0..<gs.body_count {
-        b := &gs.bodies[i]
-        cx := sun_x
-        cy := sun_y
-        bx := cx + math.cos_f32(b.orbit_angle) * (vw * b.orbit_r * 0.88)
-        by := cy + math.sin_f32(b.orbit_angle) * (vh * b.orbit_r * 0.36)
-
-        // Orbit ellipse
-        rl.DrawEllipseLines(i32(cx), i32(cy), vw*b.orbit_r*0.88, vh*b.orbit_r*0.36, rl.Color{28,38,58,80})
-
-        size := f32(6)
-        switch b.name {
-        case "Jupiter": size = 14
-        case "Saturn":  size = 12
-        case "Earth","Venus": size = 8
-        case "Moon","Phobos","Ceres": size = 4
-        }
-
-        col := b.color
-        if b.landed       { col = COL_GREEN }
-        else if b.orbited { col = COL_CYAN  }
-        else if b.probed  { col = COL_GOLD  }
-
-        rl.DrawCircle(i32(bx), i32(by), size, col)
-        if b.explored { rl.DrawCircle(i32(bx), i32(by), size+6, rl.Color{col.r, col.g, col.b, 50}) }
-
-        mx := i32(rl.GetMouseX()); my := i32(rl.GetMouseY())
-        dist := math.sqrt_f32((f32(mx)-bx)*(f32(mx)-bx) + (f32(my)-by)*(f32(my)-by))
-        show_label := dist < 22 || gs.selected == i
-        if show_label {
-            rl.DrawText(tprint("%s", b.name), i32(bx)+i32(size)+3, i32(by)-7, 13,
-                gs.selected == i ? COL_WHITE : COL_DIM)
-            if rl.IsMouseButtonPressed(.LEFT) && dist < 22 { gs.selected = i }
-        }
-    }
-
-    // Legend
-    LegItem :: struct { col: rl.Color, lbl: string }
-    legend := [4]LegItem{
-        {COL_GREEN, "Landed"},
-        {COL_CYAN,  "Orbited"},
-        {COL_GOLD,  "Probed"},
-        {COL_DIM,   "Unexplored"},
-    }
-    for i in 0..<4 {
-        lx := vx + 10
-        ly := vy + vh - 22 - f32(i)*18
-        rl.DrawCircle(i32(lx)+5, i32(ly)+5, 5, legend[i].col)
-        rl.DrawText(tprint("%s", legend[i].lbl), i32(lx)+14, i32(ly)-2, 13, COL_DIM)
-    }
-
-    // Info panel
-    if gs.selected >= 0 && gs.selected < gs.body_count {
-        b := &gs.bodies[gs.selected]
-        px := vx + vw + 8
-        pw := f32(SCREEN_W) - px - 8
+    -- Info panel
+    if gs.selected >= 1 and gs.selected <= #gs.bodies then
+        local b  = gs.bodies[gs.selected]
+        local px = vx + vw + 8
+        local pw = SCREEN_W - px - 8
         panel(px, vy, pw, vh, COL_PANEL)
-        rl.DrawText(tprint("%s", b.name), i32(px)+12, i32(vy)+14, 26, b.color)
+        drawText(b.name, px + 10, vy + 12, 24, b.color)
 
-        InfoRow :: struct { l: string, v: string }
-        rows := [3]InfoRow{
-            {"Distance", fmt.tprintf("%.2f AU", b.distance_au)},
-            {"Diameter", fmt.tprintf("%.0f km", b.diameter_km)},
-            {"Gravity",  fmt.tprintf("%.2f g",  b.gravity_g)},
+        local rows = {
+            {"Distance", string.format("%.2f AU", b.dist)},
+            {"Diameter", string.format("%.0f km", b.diam)},
+            {"Gravity",  string.format("%.2f g",  b.grav)},
         }
-        for i in 0..<3 {
-            ry2 := f32(i32(vy) + 50 + i32(i)*28)
-            rl.DrawText(tprint("%s", rows[i].l), i32(px)+12, i32(ry2), 14, COL_DIM)
-            rl.DrawText(tprint("%s", rows[i].v), i32(px)+100, i32(ry2), 14, COL_TEXT)
-        }
+        for i, row in ipairs(rows) do
+            local ry = vy + 48 + (i-1) * 26
+            drawText(row[1], px + 10, ry, 13, COL_DIM)
+            drawText(row[2], px + 96, ry, 13, COL_TEXT)
+        end
 
-        section_line("EXPLORATION", f32(vy)+142)
-        ExplItem :: struct { l: string, done: bool }
-        expls := [4]ExplItem{
+        sectionLine("EXPLORATION", vy + 138)
+        local expls = {
             {"Probed",   b.probed},
             {"Orbited",  b.orbited},
             {"Landed",   b.landed},
             {"Explored", b.explored},
         }
-        for i in 0..<4 {
-            sy := f32(i32(vy) + 152 + i32(i)*26)
-            icon := expls[i].done ? "OK" : "  "
-            icol := expls[i].done ? COL_GREEN : COL_DIM
-            rl.DrawText(tprint("%s", icon), i32(px)+12, i32(sy), 16, icol)
-            rl.DrawText(tprint("%s", expls[i].l), i32(px)+36, i32(sy)+2, 15, expls[i].done ? COL_GREEN : COL_DIM)
-        }
-    }
-}
+        for i, ex in ipairs(expls) do
+            local ey = vy + 148 + (i-1) * 24
+            drawText(ex[2] and "OK" or "--", px + 10, ey, 14, ex[2] and COL_GREEN or COL_DIM)
+            drawText(ex[1], px + 34, ey + 1, 13, ex[2] and COL_GREEN or COL_DIM)
+        end
+    end
+end
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// FACILITIES
-// ═══════════════════════════════════════════════════════════════════════════════
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- FACILITIES
+-- ═══════════════════════════════════════════════════════════════════════════════
 
-draw_facilities :: proc(gs: ^GameState) {
-    a := &gs.agency
-    label("SPACE CENTRE FACILITIES", 20, 58, 24, COL_TEXT)
-    rl.DrawLine(20, 86, SCREEN_W-20, 86, COL_BORDER)
+function drawFacilities(gs)
+    local a = gs.agency
+    drawText("SPACE CENTRE FACILITIES", 20, 58, 22, COL_TEXT)
+    drawLine(20, 84, SCREEN_W - 20, 84, COL_BORDER)
 
-    facs := [5]FacilityDef{
-        {"Launch Pads",       &a.facilities.launch_pads,    4, "Simultaneous launch capacity",      150, COL_ORANGE},
-        {"Vehicle Assembly",  &a.facilities.vab_level,      5, "Larger rockets. +1% success/level", 200, COL_ACCENT},
-        {"Tracking Network",  &a.facilities.tracking_level, 5, "+2% mission success per level",     120, COL_CYAN},
-        {"Research Lab",      &a.facilities.lab_level,      5, "Accelerate R&D projects",           180, COL_PURPLE},
-        {"Astronaut Complex", &a.facilities.hab_level,      5, "Training and morale improvement",   100, COL_GREEN},
+    local facs = {
+        {name="Launch Pads",       field="launch_pads",    max=4, desc="Simultaneous launch capacity",       cost=150, col=COL_ORANGE},
+        {name="Vehicle Assembly",  field="vab_level",      max=5, desc="Larger rockets. +1% success/level",  cost=200, col=COL_ACCENT},
+        {name="Tracking Network",  field="tracking_level", max=5, desc="+2% mission success per level",      cost=120, col=COL_CYAN},
+        {name="Research Lab",      field="lab_level",      max=5, desc="Accelerate R&D. Speed x1.2/level",   cost=180, col=COL_PURPLE},
+        {name="Astronaut Complex", field="hab_level",      max=5, desc="Training and morale improvement",    cost=100, col=COL_GREEN},
     }
 
-    for i in 0..<5 {
-        f := facs[i]
-        fy := f32(96 + i*106)
-        panel(20, fy, f32(SCREEN_W)-40, 98, COL_PANEL)
-        rl.DrawText(tprint("%s", f.name), 36, i32(fy)+10, 22, COL_TEXT)
-        rl.DrawText(tprint("Level %d / %d", f.level^, f.max_level), 36, i32(fy)+36, 16, f.col)
-        rl.DrawText(tprint("%s", f.desc), 36, i32(fy)+58, 14, COL_DIM)
+    for i, f in ipairs(facs) do
+        local fy = 92 + (i-1) * 102
+        panel(20, fy, SCREEN_W - 40, 96, COL_PANEL)
+        drawText(f.name,                    34, fy + 10, 20, COL_TEXT)
+        drawText(string.format("Level %d / %d", a.facilities[f.field], f.max), 34, fy + 34, 15, f.col)
+        drawText(f.desc,                    34, fy + 56, 13, COL_DIM)
 
-        for l in 0..<f.max_level {
-            lx := f32(300 + l*36)
-            filled := l < f.level^
-            rl.DrawRectangle(i32(lx), i32(fy)+30, 30, 20, filled ? rl.Color{f.col.r/3, f.col.g/3, f.col.b/3, 200} : COL_PANEL2)
-            rl.DrawRectangleLines(i32(lx), i32(fy)+30, 30, 20, filled ? f.col : COL_BORDER)
-            if filled { rl.DrawRectangle(i32(lx)+4, i32(fy)+34, 22, 12, f.col) }
-        }
+        for l = 1, f.max do
+            local lx     = 290 + (l-1) * 34
+            local filled = l <= a.facilities[f.field]
+            drawRect(lx, fy + 30, 28, 18, filled and colorWithAlpha(f.col, 0.3) or COL_PANEL2)
+            drawRectLines(lx, fy + 30, 28, 18, filled and f.col or COL_BORDER)
+            if filled then
+                drawRect(lx + 3, fy + 33, 22, 12, f.col)
+            end
+        end
 
-        at_max := f.level^ >= f.max_level
-        btn_txt := at_max ? "MAX" : tprint("UPGRADE $%dM", f.upgrade_cost)
-        can_up  := !at_max && a.budget >= f.upgrade_cost
-        if button(btn_txt, f32(SCREEN_W)-220, fy+28, 200, 40, f.col, !can_up) {
-            if can_up {
-                a.budget -= f.upgrade_cost
-                f.level^ += 1
-                a.monthly_income += 3
-                push_notification(gs, fmt.tprintf("%s upgraded to Level %d", f.name, f.level^))
-            }
+        local atMax  = a.facilities[f.field] >= f.max
+        local btnTxt = atMax and "MAX" or string.format("UPGRADE $%dM", f.cost)
+        local canUp  = not atMax and a.budget >= f.cost
+        if button(btnTxt, SCREEN_W - 222, fy + 26, 200, 40, f.col, not canUp) then
+            if canUp then
+                a.budget                  = a.budget - f.cost
+                a.facilities[f.field]     = a.facilities[f.field] + 1
+                a.monthly_income          = a.monthly_income + 3
+                pushNotification(gs, string.format("%s upgraded to Level %d", f.name, a.facilities[f.field]))
+            end
+        end
+    end
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- RIVALRIES  (new expanded screen)
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+function drawRivalries(gs)
+    local a = gs.agency
+    drawText("SPACE RACE — RIVAL AGENCIES", 20, 58, 22, COL_TEXT)
+    drawLine(20, 84, SCREEN_W - 20, 84, COL_BORDER)
+
+    -- Player prestige bar
+    sectionLine("YOUR AGENCY", 94)
+    drawText(a.name, 28, 104, 18, COL_ACCENT)
+    drawText(string.format("Prestige: %d", a.prestige), 200, 106, 16, COL_GOLD)
+    -- Progress bar
+    local maxP = 300
+    drawRect(340, 106, 400, 16, COL_PANEL2)
+    drawRect(340, 106, math.min(400, 400 * a.prestige / maxP), 16, COL_ACCENT)
+    drawRectLines(340, 106, 400, 16, COL_BORDER)
+
+    -- Rivals
+    for i, rv in ipairs(gs.rivals or {}) do
+        local ry = 130 + (i-1) * 148
+        panel(20, ry, SCREEN_W - 40, 142, COL_PANEL)
+        drawRect(20, ry, 4, 142, rv.color)
+
+        drawText(rv.name,   34, ry + 10, 22, COL_TEXT)
+        drawText(rv.nation, 34, ry + 36, 14, rv.color)
+        drawText(string.format("Prestige: %d", rv.prestige), 200, ry + 36, 14, COL_GOLD)
+
+        -- Prestige bar
+        drawRect(340, ry + 36, 400, 14, COL_PANEL2)
+        drawRect(340, ry + 36, math.min(400, 400 * rv.prestige / maxP), 14, rv.color)
+        drawRectLines(340, ry + 36, 400, 14, COL_BORDER)
+
+        -- Milestone indicators
+        local milestoneNames = {
+            {key="orbit",        label="ORBIT"},
+            {key="moon_orbit",   label="MOON ORBIT"},
+            {key="moon_landing", label="MOON LANDING"},
+            {key="mars",         label="MARS"},
         }
-    }
-}
+        local mx2 = 34
+        for _, ms in ipairs(milestoneNames) do
+            local done  = rv.milestones and rv.milestones[ms.key]
+            local mc    = done and COL_GREEN or COL_DIM
+            drawRect(mx2, ry + 58, 120, 18, COL_PANEL2)
+            drawRectLines(mx2, ry + 58, 120, 18, done and mc or COL_BORDER)
+            drawTextCentered(ms.label, mx2, ry + 61, 120, 11, mc)
+            mx2 = mx2 + 126
+        end
+
+        -- Status
+        local lead = rv.prestige > a.prestige
+        local statusMsg = lead and "AHEAD OF YOU" or "BEHIND YOU"
+        local statusCol = lead and COL_RED or COL_GREEN
+        drawText(statusMsg, SCREEN_W - 200, ry + 16, 16, statusCol)
+
+        -- Aggression level
+        drawText(string.format("Aggression: %.0f%%", rv.aggression * 100), SCREEN_W - 200, ry + 40, 13, COL_DIM)
+    end
+
+    -- Recent rival news
+    sectionLine("INTELLIGENCE FEED", SCREEN_H - 165)
+    local feedY = SCREEN_H - 150
+    if #(gs.rivalNews or {}) == 0 then
+        drawText("No rival activity reported.", 28, feedY, 14, COL_DIM)
+    end
+    for i, rn in ipairs(gs.rivalNews or {}) do
+        if i > 6 then break end
+        drawText(">> " .. rn.msg, 28, feedY + (i-1) * 18, 13, rn.col or COL_RED)
+    end
+end
