@@ -1,6 +1,7 @@
 // cargo
 // love
 // npm
+// zip
 
 > cd the-racer && cargo build --release && cd ..
 > cd bit-jump && zip -r bit-jump.love * && cd ..
