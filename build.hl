@@ -1,11 +1,16 @@
 // cargo
 // love
-// odin
 // npm
 
 > cd the-racer && cargo build --release && cd ..
-> cd bit-jump && tar && sudo mv && cd ..
+> cd bit-jump && zip -r bit-jump.love * && cd ..
 > cd starblaster && cargo build --release && cd ..
-> cd bark-squadron && npm run dist && cd ..
+> cd bark-squadron && npm run tauri build && cd ..
+> cd cosmonaut && zip -r cosmonaut.love * && cd ..
 > cd app && npm run build
-  
+
+! Build addons HackerOS Games
+! > cd addons
+! > cd parkour-runner && zip -r parkour-runner.love * && cd ..
+! > cd && npm run tauri build && cd ..
+! > cd && cargo build --release && cd ..
