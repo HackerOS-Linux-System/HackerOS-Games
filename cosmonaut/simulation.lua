@@ -1,278 +1,312 @@
-package cosmonaut
-
-import "core:fmt"
-import "core:math/rand"
-import "core:strings"
-
-// ── Mission helpers ───────────────────────────────────────────────────────────
-
-mission_base_chance :: proc(t: MissionType, r: ^RocketDesign, a: ^Agency) -> f32 {
-    base: f32
-    switch t {
-    case .OrbitalTest:      base = 0.92
-    case .SatelliteNetwork: base = 0.88
-    case .CrewedOrbit:      base = 0.84
-    case .LunarFlyby:       base = 0.80
-    case .LunarOrbit:       base = 0.74
-    case .LunarLanding:     base = 0.60
-    case .MarsProbe:        base = 0.72
-    case .MarsOrbiter:      base = 0.62
-    case .MarsSurface:      base = 0.46
-    case .AsteroidProbe:    base = 0.66
-    case .SpaceStation:     base = 0.76
-    case .DeepSpaceProbe:   base = 0.64
-    }
-    base *= r.reliability
-    base += f32(a.facilities.tracking_level - 1) * 0.02
-    base += f32(a.facilities.vab_level - 1) * 0.01
-    if base < 0.05 { base = 0.05 }
-    if base > 0.98 { base = 0.98 }
-    return base
+local MISSION_DATA = {
+    OrbitalTest      = {base=0.92, prestige=5,   dur=1,  mult=1.0, dest="Earth Orbit",  crew=false},
+    SatelliteNetwork = {base=0.88, prestige=8,   dur=2,  mult=1.2, dest="Earth Orbit",  crew=false},
+    CrewedOrbit      = {base=0.84, prestige=20,  dur=1,  mult=2.0, dest="Earth Orbit",  crew=true},
+    LunarFlyby       = {base=0.80, prestige=25,  dur=3,  mult=2.5, dest="Moon",         crew=false},
+    LunarOrbit       = {base=0.74, prestige=40,  dur=5,  mult=3.5, dest="Moon",         crew=true},
+    LunarLanding     = {base=0.60, prestige=100, dur=8,  mult=6.0, dest="Moon",         crew=true},
+    MarsProbe        = {base=0.72, prestige=30,  dur=9,  mult=3.0, dest="Mars",         crew=false},
+    MarsOrbiter      = {base=0.62, prestige=50,  dur=12, mult=5.0, dest="Mars",         crew=false},
+    MarsSurface      = {base=0.46, prestige=120, dur=24, mult=9.0, dest="Mars",         crew=true},
+    AsteroidProbe    = {base=0.66, prestige=25,  dur=18, mult=4.0, dest="Ceres",        crew=false},
+    SpaceStation     = {base=0.76, prestige=60,  dur=36, mult=8.0, dest="Earth Orbit",  crew=true},
+    DeepSpaceProbe   = {base=0.64, prestige=35,  dur=48, mult=5.0, dest="Neptune",      crew=false},
+    VenusProbe       = {base=0.70, prestige=28,  dur=7,  mult=2.8, dest="Venus",        crew=false},
+    JupiterFlyby     = {base=0.58, prestige=45,  dur=30, mult=6.5, dest="Jupiter",      crew=false},
+    SaturnFlyby      = {base=0.52, prestige=55,  dur=42, mult=7.5, dest="Saturn",       crew=false},
 }
 
-mission_prestige :: proc(t: MissionType) -> int {
-    switch t {
-    case .OrbitalTest:      return 5
-    case .SatelliteNetwork: return 8
-    case .CrewedOrbit:      return 20
-    case .LunarFlyby:       return 25
-    case .LunarOrbit:       return 40
-    case .LunarLanding:     return 100
-    case .MarsProbe:        return 30
-    case .MarsOrbiter:      return 50
-    case .MarsSurface:      return 120
-    case .AsteroidProbe:    return 25
-    case .SpaceStation:     return 60
-    case .DeepSpaceProbe:   return 35
-    }
-    return 10
+function missionBaseChance(mtype, rocket, agency)
+    local d = MISSION_DATA[mtype]
+    if not d then return 0.5 end
+    local base = d.base * rocket.reliability
+    base = base + (agency.facilities.tracking_level - 1) * 0.02
+    base = base + (agency.facilities.vab_level - 1) * 0.01
+    -- Research bonuses
+    if agency.unlocks then
+        if agency.unlocks["nav_accuracy"] then base = base + 0.10 end
+        if agency.unlocks["propulsion"]   then base = base + 0.05 end
+    end
+    return clamp(base, 0.05, 0.98)
+end
+
+function missionPrestige(mtype)
+    local d = MISSION_DATA[mtype]
+    return d and d.prestige or 10
+end
+
+function missionDuration(mtype)
+    local d = MISSION_DATA[mtype]
+    return d and d.dur or 3
+end
+
+function missionCost(mtype, rocket)
+    local d = MISSION_DATA[mtype]
+    if not d then return rocket.cost_million end
+    return math.floor(rocket.cost_million * d.mult)
+end
+
+function missionDestination(mtype)
+    local d = MISSION_DATA[mtype]
+    return d and d.dest or "Space"
+end
+
+function missionNeedsCrew(mtype)
+    local d = MISSION_DATA[mtype]
+    return d and d.crew or false
+end
+
+-- ── Body exploration ──────────────────────────────────────────────────────────
+
+function updateBodyExploration(gs, m)
+    for _, b in ipairs(gs.bodies) do
+        if b.name and m.destination and m.destination:find(b.name) then
+            local t = m.mission_type
+            if t == "LunarFlyby" or t == "MarsProbe" or t == "AsteroidProbe"
+            or t == "DeepSpaceProbe" or t == "VenusProbe"
+            or t == "JupiterFlyby"  or t == "SaturnFlyby" then
+                b.probed = true
+            elseif t == "LunarOrbit" or t == "MarsOrbiter" or t == "SpaceStation" then
+                b.probed  = true
+                b.orbited = true
+            elseif t == "LunarLanding" or t == "MarsSurface" then
+                b.probed   = true
+                b.orbited  = true
+                b.landed   = true
+                b.explored = true
+            end
+        end
+    end
+end
+
+-- ── Random events ─────────────────────────────────────────────────────────────
+
+local EVENTS = {
+    {msg="Solar flare disrupts communications",               budget=-5,  rep=-5},
+    {msg="Congressional hearing: additional funding approved!",budget=30,  rep=5},
+    {msg="Public excitement surges — reputation boost",        budget=0,   rep=10},
+    {msg="Equipment supplier delays delivery",                 budget=0,   rep=-3},
+    {msg="International collaboration offer: $20M grant",      budget=20,  rep=8},
+    {msg="Budget review: efficiency bonus awarded",            budget=15,  rep=3},
+    {msg="Lab breakthrough accelerates R&D",                   budget=0,   rep=5},
+    {msg="Astronaut training accident — morale drops",         budget=0,   rep=-8},
+    {msg="Private investment interest: $25M injection",        budget=25,  rep=4},
+    {msg="Government audit — funds frozen temporarily",        budget=-20, rep=-2},
+    {msg="Media special: public fascination with space",       budget=5,   rep=12},
+    {msg="Launch facility fire — minor setback",               budget=-10, rep=-6},
 }
 
-mission_duration :: proc(t: MissionType) -> int {
-    switch t {
-    case .OrbitalTest:      return 1
-    case .SatelliteNetwork: return 2
-    case .CrewedOrbit:      return 1
-    case .LunarFlyby:       return 3
-    case .LunarOrbit:       return 5
-    case .LunarLanding:     return 8
-    case .MarsProbe:        return 9
-    case .MarsOrbiter:      return 12
-    case .MarsSurface:      return 24
-    case .AsteroidProbe:    return 18
-    case .SpaceStation:     return 36
-    case .DeepSpaceProbe:   return 48
-    }
-    return 3
-}
+function generateEvent(gs)
+    local a    = gs.agency
+    local ev   = EVENTS[math.random(#EVENTS)]
+    table.insert(a.events, 1, ev.msg)
+    if #a.events > 8 then table.remove(a.events) end
+    a.budget     = a.budget + ev.budget
+    a.reputation = clamp(a.reputation + ev.rep, 0, 100)
+    pushNotification(gs, ev.msg)
+end
 
-mission_cost :: proc(t: MissionType, r: ^RocketDesign) -> int {
-    base := r.cost_million
-    mult: f32
-    switch t {
-    case .OrbitalTest:      mult = 1.0
-    case .SatelliteNetwork: mult = 1.2
-    case .CrewedOrbit:      mult = 2.0
-    case .LunarFlyby:       mult = 2.5
-    case .LunarOrbit:       mult = 3.5
-    case .LunarLanding:     mult = 6.0
-    case .MarsProbe:        mult = 3.0
-    case .MarsOrbiter:      mult = 5.0
-    case .MarsSurface:      mult = 9.0
-    case .AsteroidProbe:    mult = 4.0
-    case .SpaceStation:     mult = 8.0
-    case .DeepSpaceProbe:   mult = 5.0
-    }
-    return int(base * mult)
-}
+-- ── Rival simulation ──────────────────────────────────────────────────────────
 
-mission_destination :: proc(t: MissionType) -> string {
-    switch t {
-    case .OrbitalTest:      return "Earth Orbit"
-    case .SatelliteNetwork: return "Earth Orbit"
-    case .CrewedOrbit:      return "Earth Orbit"
-    case .LunarFlyby:       return "Moon"
-    case .LunarOrbit:       return "Moon"
-    case .LunarLanding:     return "Moon"
-    case .MarsProbe:        return "Mars"
-    case .MarsOrbiter:      return "Mars"
-    case .MarsSurface:      return "Mars"
-    case .AsteroidProbe:    return "Ceres"
-    case .SpaceStation:     return "Earth Orbit"
-    case .DeepSpaceProbe:   return "Neptune"
-    }
-    return "Space"
-}
+function updateRivals(gs)
+    if not gs.rivals then return end
+    local a = gs.agency
+    for _, rv in ipairs(gs.rivals) do
+        rv.event_timer = rv.event_timer - 1
+        if rv.event_timer <= 0 then
+            rv.event_timer = math.random(4, 12)
+            -- Rivals try to complete milestones based on aggression
+            local roll = math.random()
+            if roll < rv.aggression * 0.15 then
+                -- Rival completes a mission milestone
+                if not rv.milestones.orbit then
+                    rv.milestones.orbit = true
+                    rv.prestige = rv.prestige + 20
+                    local msg = rv.name .. " achieved Earth orbit!"
+                    table.insert(gs.rivalNews, 1, {msg=msg, col=COL_RED, timer=6})
+                    pushNotification(gs, "RIVAL: " .. msg)
+                elseif not rv.milestones.moon_orbit and a.milestones and a.milestones.orbit then
+                    rv.milestones.moon_orbit = true
+                    rv.prestige = rv.prestige + 40
+                    local msg = rv.name .. " reached lunar orbit!"
+                    table.insert(gs.rivalNews, 1, {msg=msg, col=COL_RED, timer=6})
+                    pushNotification(gs, "RIVAL: " .. msg)
+                end
+            end
+        end
+    end
+    -- Cull old rival news
+    local keep = {}
+    for _, n in ipairs(gs.rivalNews or {}) do
+        n.timer = n.timer - (1/60)
+        if n.timer > 0 then table.insert(keep, n) end
+    end
+    gs.rivalNews = keep
+end
 
-mission_needs_crew :: proc(t: MissionType) -> bool {
-    #partial switch t {
-    case .CrewedOrbit, .LunarOrbit, .LunarLanding, .MarsSurface, .SpaceStation:
-        return true
-    }
-    return false
-}
+-- ── Main simulation tick ──────────────────────────────────────────────────────
 
-// ── Body exploration update ───────────────────────────────────────────────────
+function advanceMonth(gs)
+    local a = gs.agency
 
-update_body_exploration :: proc(gs: ^GameState, m: ^Mission) {
-    for i in 0..<gs.body_count {
-        b := &gs.bodies[i]
-        if !strings.contains(m.destination, b.name) { continue }
-        #partial switch m.mission_type {
-        case .LunarFlyby, .MarsProbe, .AsteroidProbe, .DeepSpaceProbe:
-            b.probed = true
-        case .LunarOrbit, .MarsOrbiter, .SpaceStation:
-            b.probed  = true
-            b.orbited = true
-        case .LunarLanding, .MarsSurface:
-            b.probed   = true
-            b.orbited  = true
-            b.landed   = true
-            b.explored = true
-        case .OrbitalTest, .CrewedOrbit, .SatelliteNetwork:
-            // Earth-only
-        }
-    }
-}
+    -- Track milestones
+    if not a.milestones then
+        a.milestones = {orbit=false, moon_orbit=false, moon_landing=false, mars=false}
+    end
 
-// ── Events ────────────────────────────────────────────────────────────────────
+    a.month = a.month + 1
+    if a.month > 12 then a.month = 1; a.year = a.year + 1 end
 
-EventDef :: struct {
-    msg:        string,
-    budget_d:   int,
-    rep_d:      int,
-}
+    -- Income
+    local income = a.monthly_income + math.floor((a.reputation - 50) / 5)
+    a.budget = a.budget + income
 
-EVENTS := [8]EventDef{
-    {"Solar flare disrupts communications",                   -5,  -5},
-    {"Congressional hearing: additional funding approved!",   30,   5},
-    {"Public excitement surges — reputation boost",            0,  10},
-    {"Equipment supplier delays delivery",                     0,  -3},
-    {"International collaboration offer: $20M grant",         20,   8},
-    {"Budget review: efficiency bonus awarded",               15,   3},
-    {"Lab breakthrough accelerates R&D",                       0,   5},
-    {"Astronaut training accident — morale drops",             0,  -8},
-}
+    -- Upkeep
+    local upkeep = 10 + a.facilities.vab_level * 3 + a.facilities.launch_pads * 5
+    a.budget = a.budget - upkeep
 
-generate_event :: proc(gs: ^GameState) {
-    a := &gs.agency
-    idx := int(rand.float32() * 8) % 8
-    ev := EVENTS[idx]
+    -- Astronaut aging & retirement
+    for _, ast in ipairs(a.astronauts) do
+        if ast.status == "Available" then
+            -- Small morale recovery per month
+            ast.morale = math.min(100, ast.morale + 2)
+        end
+        -- Age every 12 months
+        if a.month == 1 then
+            ast.age = ast.age + 1
+            if ast.age >= 60 and ast.status == "Available" and math.random() < 0.3 then
+                ast.status = "Retired"
+                pushNotification(gs, ast.name .. " has retired from the astronaut corps.")
+            end
+        end
+    end
 
-    if a.event_count < 8 {
-        a.events[a.event_count] = ev.msg
-        a.event_count += 1
-    } else {
-        for i in 0..<7 { a.events[i] = a.events[i+1] }
-        a.events[7] = ev.msg
-    }
+    -- Research progress
+    for _, r in ipairs(a.research) do
+        if not r.completed and r.progress > 0 and r.progress < r.duration then
+            -- Lab level speeds research
+            local speed = 1 + (a.facilities.lab_level - 1) * 0.2
+            r.progress = r.progress + speed
+            if r.progress >= r.duration then
+                r.progress   = r.duration
+                r.completed  = true
+                -- Apply unlock
+                applyResearchUnlock(a, r)
+                pushNotification(gs, "Research complete: " .. r.name)
+                a.science_pts = a.science_pts + 15
+                a.prestige    = a.prestige + 5
+            end
+        end
+    end
 
-    a.budget += ev.budget_d
-    a.reputation += ev.rep_d
-    if a.reputation < 0   { a.reputation = 0 }
-    if a.reputation > 100 { a.reputation = 100 }
-    push_notification(gs, ev.msg)
-}
+    -- Mission progress
+    for _, m in ipairs(a.missions) do
+        if m.status ~= "InFlight" then goto continue end
+        m.elapsed = m.elapsed + 1
+        appendMissionLog(m, string.format("Month %d/%d: Nominal", m.elapsed, m.duration))
 
-// ── Main simulation tick ──────────────────────────────────────────────────────
+        -- In-flight events
+        local roll = math.random()
+        if roll < 0.04 then
+            appendMissionLog(m, "Minor anomaly — crew responding")
+        elseif roll < 0.015 then
+            m.success_chance = m.success_chance * 0.75
+            appendMissionLog(m, "CRITICAL: System failure detected")
+        end
 
-advance_month :: proc(gs: ^GameState) {
-    a := &gs.agency
-    a.month += 1
-    if a.month > 12 { a.month = 1; a.year += 1 }
+        if m.elapsed < m.duration then goto continue end
 
-    // Income
-    income := a.monthly_income + (a.reputation - 50) / 5
-    a.budget += income
+        -- Outcome
+        if math.random() < m.success_chance then
+            m.status      = "Success"
+            a.prestige    = a.prestige + m.prestige
+            a.science_pts = a.science_pts + m.science
+            a.budget      = a.budget + math.floor(m.cost / 4)
+            a.reputation  = math.min(100, a.reputation + 3)
+            pushNotification(gs, "SUCCESS: " .. m.name .. " returned!")
+            updateBodyExploration(gs, m)
+            -- Milestones
+            if m.destination == "Earth Orbit" and not a.milestones.orbit then
+                a.milestones.orbit = true
+            end
+            if m.destination == "Moon" and m.mission_type == "LunarLanding" and not a.milestones.moon_landing then
+                a.milestones.moon_landing = true
+                a.prestige = a.prestige + 50 -- bonus
+                pushNotification(gs, "HISTORIC: First Lunar Landing achieved!")
+            end
+            -- Restore crew
+            for _, aid in ipairs(m.crew or {}) do
+                for _, ast in ipairs(a.astronauts) do
+                    if ast.id == aid then
+                        ast.status = "Available"
+                        ast.experience = ast.experience + 1
+                        ast.missions_completed = (ast.missions_completed or 0) + 1
+                        ast.total_flight_months = (ast.total_flight_months or 0) + m.duration
+                        ast.morale = math.min(100, ast.morale + 15)
+                    end
+                end
+            end
+            -- Update rocket stats
+            for _, rk in ipairs(a.rockets) do
+                if rk.id == m.rocket_id then
+                    rk.successes = rk.successes + 1
+                    -- Slight reliability improvement from experience
+                    rk.reliability = math.min(0.99, rk.reliability + 0.002)
+                end
+            end
+        else
+            m.status     = "Failure"
+            a.prestige   = math.max(0, a.prestige - math.floor(m.prestige / 2))
+            a.reputation = math.max(0, a.reputation - 10)
+            pushNotification(gs, "FAILURE: " .. m.name .. " lost contact")
+            -- Crew fate
+            if #(m.crew or {}) > 0 and math.random() < 0.4 then
+                for _, aid in ipairs(m.crew) do
+                    for _, ast in ipairs(a.astronauts) do
+                        if ast.id == aid then ast.status = "Lost" end
+                    end
+                end
+                pushNotification(gs, "Crew lost in mission failure")
+            else
+                for _, aid in ipairs(m.crew or {}) do
+                    for _, ast in ipairs(a.astronauts) do
+                        if ast.id == aid and ast.status == "InFlight" then
+                            ast.status = "Available"
+                            ast.morale = math.max(0, ast.morale - 30)
+                        end
+                    end
+                end
+            end
+        end
+        ::continue::
+    end
 
-    // Upkeep
-    upkeep := 10 + a.facilities.vab_level*3 + a.facilities.launch_pads*5
-    a.budget -= upkeep
+    -- Random event
+    if math.random() < 0.12 then generateEvent(gs) end
 
-    // Research progress
-    for i in 0..<a.research_count {
-        r := &a.research[i]
-        if !r.completed && r.progress > 0 && r.progress < r.duration {
-            r.progress += 1
-            if r.progress >= r.duration {
-                r.completed = true
-                push_notification(gs, fmt.tprintf("Research complete: %s", r.name))
-                a.science_pts += 15
-                a.prestige    += 5
-            }
-        }
-    }
+    -- Reputation drift
+    if a.reputation > 50 then a.reputation = a.reputation - 1 end
+    if a.reputation < 50 then a.reputation = a.reputation + 1 end
 
-    // Mission progress
-    for i in 0..<a.mission_count {
-        m := &a.missions[i]
-        if m.status != .InFlight { continue }
-        m.elapsed += 1
+    -- Rivals
+    updateRivals(gs)
 
-        append_mission_log(m, fmt.tprintf("Month %d/%d: Nominal", m.elapsed, m.duration))
+    -- Orbit angle animation
+    for _, b in ipairs(gs.bodies) do
+        b.orbit_angle = b.orbit_angle + 0.05 / (b.dist or 1)
+    end
+end
 
-        // Random in-flight events
-        roll := rand.float32()
-        if roll < 0.04 {
-            append_mission_log(m, "Minor anomaly — crew responding")
-        } else if roll < 0.015 {
-            m.success_chance *= 0.75
-            append_mission_log(m, "CRITICAL: System failure")
-        }
+-- ── Apply research unlock ──────────────────────────────────────────────────────
 
-        if m.elapsed < m.duration { continue }
-
-        // Mission outcome
-        if rand.float32() < m.success_chance {
-            m.status       = .Success
-            a.prestige    += m.prestige
-            a.science_pts += m.science
-            a.budget      += m.cost / 4
-            push_notification(gs, fmt.tprintf("SUCCESS: %s returned!", m.name))
-            update_body_exploration(gs, m)
-            // Restore crew
-            for j in 0..<m.crew_count {
-                aid := m.crew[j]
-                for k in 0..<a.astronaut_count {
-                    if a.astronauts[k].id == aid {
-                        a.astronauts[k].status = .Available
-                        a.astronauts[k].experience += 1
-                        a.astronauts[k].morale = min(100, a.astronauts[k].morale + 15)
-                    }
-                }
-            }
-        } else {
-            m.status       = .Failure
-            a.prestige     = max(0, a.prestige - m.prestige/2)
-            a.reputation   = max(0, a.reputation - 10)
-            push_notification(gs, fmt.tprintf("FAILURE: %s lost contact", m.name))
-            // Crew fate
-            if m.crew_count > 0 && rand.float32() < 0.4 {
-                for j in 0..<m.crew_count {
-                    aid := m.crew[j]
-                    for k in 0..<a.astronaut_count {
-                        if a.astronauts[k].id == aid { a.astronauts[k].status = .Lost }
-                    }
-                }
-                push_notification(gs, "Crew lost in mission failure")
-            } else {
-                for j in 0..<m.crew_count {
-                    aid := m.crew[j]
-                    for k in 0..<a.astronaut_count {
-                        if a.astronauts[k].id == aid && a.astronauts[k].status == .InFlight {
-                            a.astronauts[k].status = .Available
-                            a.astronauts[k].morale = max(0, a.astronauts[k].morale - 30)
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // Random world event
-    if rand.float32() < 0.12 { generate_event(gs) }
-
-    // Reputation drift towards 50
-    if a.reputation > 50 { a.reputation -= 1 }
-    if a.reputation < 50 { a.reputation += 1 }
-}
+function applyResearchUnlock(a, r)
+    if not a.unlocks then a.unlocks = {} end
+    if r.area == "Navigation"        then a.unlocks["nav_accuracy"]   = true end
+    if r.area == "PropulsionTech"    then a.unlocks["propulsion"]     = true end
+    if r.area == "LifeSupport"       then a.unlocks["long_duration"]  = true end
+    if r.area == "NuclearPropulsion" then a.unlocks["nuclear_engine"] = true end
+    if r.area == "Cryogenics"        then a.unlocks["cryo_stage"]     = true end
+    if r.area == "ArtificialGravity" then a.unlocks["art_gravity"]    = true end
+    if r.area == "AdvancedSensors"   then a.unlocks["deep_comms"]     = true end
+    table.insert(a.completed_research or {}, r.name)
+end
