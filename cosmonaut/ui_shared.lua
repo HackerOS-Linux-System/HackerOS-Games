@@ -1,69 +1,80 @@
-package cosmonaut
+local lg = love.graphics
 
-import "core:fmt"
-import "core:math"
-import "core:strings"
-import rl "vendor:raylib"
+-- ── Top bar ───────────────────────────────────────────────────────────────────
 
-draw_topbar :: proc(gs: ^GameState) {
-    a := &gs.agency
-    rl.DrawRectangle(0, 0, SCREEN_W, 44, rl.Color{5, 8, 18, 245})
-    rl.DrawLine(0, 44, SCREEN_W, 44, COL_BORDER)
+function drawTopbar(gs)
+    local a = gs.agency
 
-    name_cs := strings.clone_to_cstring(a.name)
-    defer delete(name_cs)
-    rl.DrawText(name_cs, 14, 12, 20, COL_ACCENT)
+    -- Background
+    setColor({5/255, 8/255, 18/255, 245/255})
+    lg.rectangle("fill", 0, 0, SCREEN_W, 48)
+    drawLine(0, 48, SCREEN_W, 48, COL_BORDER)
 
-    rl.DrawText(tprint("%s %d", month_name(a.month), a.year), SCREEN_W/2 - 40, 12, 18, COL_DIM)
+    -- Agency name
+    drawText(a.name, 14, 14, 18, COL_ACCENT)
 
-    budget_str := tprint("$%dM", a.budget)
-    bw := rl.MeasureText(budget_str, 18)
-    bcol := a.budget > 50 ? COL_GREEN : COL_RED
-    rl.DrawText(budget_str, SCREEN_W - bw - 200, 13, 18, bcol)
+    -- Date centered
+    local dateStr = monthName(a.month) .. " " .. a.year
+    local dtw = measureText(dateStr, 16)
+    drawText(dateStr, SCREEN_W/2 - dtw/2, 15, 16, COL_DIM)
 
-    rl.DrawText(tprint("* %d", a.prestige),    SCREEN_W - 150, 13, 18, COL_GOLD)
-    rl.DrawText(tprint("S %d", a.science_pts), SCREEN_W -  65, 13, 18, COL_CYAN)
+    -- Budget
+    local budStr = string.format("$%dM", a.budget)
+    local bw2    = measureText(budStr, 16)
+    local bcol   = a.budget > 50 and COL_GREEN or COL_RED
+    drawText(budStr, SCREEN_W - bw2 - 220, 15, 16, bcol)
 
-}
+    -- Prestige
+    drawText(string.format("* %d", a.prestige), SCREEN_W - 160, 15, 16, COL_GOLD)
 
-draw_bottom_nav :: proc(gs: ^GameState) {
-    by := i32(SCREEN_H - 42)
-    rl.DrawRectangle(0, by, SCREEN_W, 42, rl.Color{5, 8, 18, 245})
-    rl.DrawLine(0, by, SCREEN_W, by, COL_BORDER)
+    -- Science
+    drawText(string.format("S %d", a.science_pts), SCREEN_W - 72, 15, 16, COL_CYAN)
+end
 
-    tw := SCREEN_W / i32(len(nav_tabs))
-    for i in 0..<len(nav_tabs) {
-        tab := nav_tabs[i]
-        tx := i32(i) * tw
-        active := gs.screen == tab.screen
-        col := tab.col
-        if active {
-            rl.DrawRectangle(tx, by, tw, 42, rl.Color{col.r/6, col.g/6, col.b/6, 200})
-            rl.DrawLine(tx, by, tx+tw, by, col)
-        }
-        lw := rl.MeasureText(tab.label, 14)
-        lx := tx + (tw - lw) / 2
-        tcol := active ? col : COL_DIM
-        rl.DrawText(tab.label, lx, by+14, 14, tcol)
+-- ── Bottom nav ────────────────────────────────────────────────────────────────
 
-        mx := i32(rl.GetMouseX())
-        my := i32(rl.GetMouseY())
-        if mx >= tx && mx < tx+tw && my >= by && my < by+42 && rl.IsMouseButtonPressed(.LEFT) {
+function drawBottomNav(gs)
+    local by = SCREEN_H - 42
+    setColor({5/255, 8/255, 18/255, 245/255})
+    lg.rectangle("fill", 0, by, SCREEN_W, 42)
+    drawLine(0, by, SCREEN_W, by, COL_BORDER)
+
+    local tw = math.floor(SCREEN_W / #NAV_TABS)
+    for i, tab in ipairs(NAV_TABS) do
+        local tx     = (i-1) * tw
+        local active = gs.screen == tab.screen
+        local col    = tab.col
+
+        if active then
+            setColor(colorWithAlpha(col, 0.12))
+            lg.rectangle("fill", tx, by, tw, 42)
+            setColor(col)
+            lg.rectangle("fill", tx, by, tw, 2)
+        end
+
+        local lw2 = measureText(tab.label, 13)
+        local lx  = tx + (tw - lw2) / 2
+        drawText(tab.label, lx, by + 15, 13, active and col or COL_DIM)
+
+        if mouseInAndClicked(tx, by, tw, 42) then
             gs.screen = tab.screen
-            gs.tab = 0
-        }
-    }
-}
+            gs.tab    = 1
+            gs.scroll = 0
+        end
+    end
+end
 
-draw_notification :: proc(gs: ^GameState) {
-    if gs.notif_timer <= 0 { return }
-    alpha := u8(math.clamp(gs.notif_timer / 0.5, f32(0), f32(1)) * 220)
-    text := string(gs.notification[:gs.notif_len])
-    cs := strings.clone_to_cstring(text)
-    defer delete(cs)
-    tw := rl.MeasureText(cs, 16)
-    nx := SCREEN_W/2 - tw/2 - 16
-    rl.DrawRectangle(nx, SCREEN_H-72, tw+32, 28, rl.Color{10, 20, 40, alpha})
-    rl.DrawRectangleLines(nx, SCREEN_H-72, tw+32, 28, rl.Color{COL_ACCENT.r, COL_ACCENT.g, COL_ACCENT.b, alpha})
-    rl.DrawText(cs, nx+16, SCREEN_H-64, 16, rl.Color{COL_TEXT.r, COL_TEXT.g, COL_TEXT.b, alpha})
-}
+-- ── Notification toast ────────────────────────────────────────────────────────
+
+function drawNotification(gs)
+    if gs.notifTimer <= 0 or gs.notification == "" then return end
+    local alpha = clamp(gs.notifTimer / 0.5, 0, 1) * 0.86
+    local tw2   = measureText(gs.notification, 14)
+    local nx    = SCREEN_W/2 - tw2/2 - 16
+
+    setColor(colorWithAlpha(COL_PANEL, alpha))
+    lg.rectangle("fill", nx, SCREEN_H - 76, tw2 + 32, 28, 4, 4)
+    setColor(colorWithAlpha(COL_ACCENT, alpha))
+    lg.rectangle("line", nx, SCREEN_H - 76, tw2 + 32, 28, 4, 4)
+    drawText(gs.notification, nx + 16, SCREEN_H - 68, 14, COL_TEXT, alpha)
+end
