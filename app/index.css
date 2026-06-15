@@ -5,6 +5,7 @@
   --border: #1a2535;
   --green: #00ff41;
   --accent: #2a8fff;
+  --accent-rgb: 42,143,255;
   --green-dim: #00aa2b;
   --red: #ff1744;
   --blue: #00cfff;
@@ -59,13 +60,22 @@ flex-direction: column;
 /* Scrollbar */
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-track { background: #050508; }
-::-webkit-scrollbar-thumb { background: #0a1e3a; border: 1px solid #2a8fff; }
-::-webkit-scrollbar-thumb:hover { background: #2a8fff; }
+::-webkit-scrollbar-thumb { background: #0a1e3a; border: 1px solid var(--accent); }
+::-webkit-scrollbar-thumb:hover { background: var(--accent); }
 
 /* Animations */
 @keyframes pulse-green {
-  0%, 100% { opacity: 1; box-shadow: 0 0 4px #2a8fff; }
-  50% { opacity: 0.5; box-shadow: 0 0 12px #2a8fff; }
+  0%, 100% { opacity: 1; box-shadow: 0 0 4px var(--accent); }
+  50% { opacity: 0.5; box-shadow: 0 0 12px var(--accent); }
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.spin {
+  animation: spin 1s linear infinite;
 }
 
 /* Nav tab */
@@ -87,9 +97,9 @@ flex-direction: column;
 }
 
 .nav-tab.active {
-  color: #2a8fff;
-  border-bottom-color: #2a8fff;
-  text-shadow: 0 0 8px rgba(42,143,255,0.5);
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  text-shadow: 0 0 8px rgba(var(--accent-rgb),0.5);
 }
 
 .nav-tab:hover:not(.active) {
