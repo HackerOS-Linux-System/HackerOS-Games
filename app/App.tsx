@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { GAMES, ADDONS } from './constants';
-import { GamePlaytime, GameSettings, NavSection } from './types';
+import { GAMES, DEFAULT_APP_SETTINGS, hexToRgb } from './constants';
+import { GamePlaytime, GameSettings, AppSettings, NavSection } from './types';
 import GamesSection from './components/GamesSection';
 import AddonsSection from './components/AddonsSection';
+import StoreSection from './components/StoreSection';
 import SettingsSection from './components/SettingsSection';
 import ParticlesBackground from './components/ParticlesBackground';
-import { Gamepad2, Puzzle, Settings, Info, Minus, Square, X } from 'lucide-react';
+import { Gamepad2, Puzzle, Store, Settings, Info, Minus, Square, X } from 'lucide-react';
 
 const isTauri = () => '__TAURI_INTERNALS__' in window;
 
@@ -15,12 +16,14 @@ const App: React.FC = () => {
   const [activeSection, setActiveSection] = useState<NavSection>('games');
   const [playtime, setPlaytime] = useState<Record<string, GamePlaytime>>({});
   const [gameSettings, setGameSettings] = useState<Record<string, GameSettings>>({});
+  const [appSettings, setAppSettings] = useState<AppSettings>(DEFAULT_APP_SETTINGS);
   const [clock, setClock] = useState(new Date());
 
   useEffect(() => {
     if (!isTauri()) return;
     invoke<Record<string, GamePlaytime>>('get_all_playtime').then(setPlaytime).catch(() => {});
     invoke<Record<string, GameSettings>>('get_all_game_settings').then(setGameSettings).catch(() => {});
+    invoke<AppSettings>('get_app_settings').then(setAppSettings).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -51,10 +54,17 @@ const App: React.FC = () => {
     setTimeout(() => clearInterval(interval), 3600000); // stop after 1h
   }, []);
 
-  const handleSaveSettings = useCallback(async (gameId: string, settings: GameSettings) => {
+  const handleSaveGameSettings = useCallback(async (gameId: string, settings: GameSettings) => {
     setGameSettings(prev => ({ ...prev, [gameId]: settings }));
     if (isTauri()) {
       await invoke('save_game_settings', { gameId, settings }).catch(() => {});
+    }
+  }, []);
+
+  const handleSaveAppSettings = useCallback(async (settings: AppSettings) => {
+    setAppSettings(settings);
+    if (isTauri()) {
+      await invoke('save_app_settings', { settings }).catch(() => {});
     }
   }, []);
 
@@ -63,26 +73,34 @@ const App: React.FC = () => {
     const win = getCurrentWindow();
     if (action === 'minimize') win.minimize();
     else if (action === 'maximize') win.toggleMaximize();
+    else if (appSettings.minimizeOnClose) win.minimize();
     else win.close();
   };
 
     const navItems: { id: NavSection; label: string; icon: React.ReactNode }[] = [
       { id: 'games',    label: 'Library',  icon: <Gamepad2 size={13} /> },
       { id: 'addons',   label: 'Addons',   icon: <Puzzle size={13} /> },
+      { id: 'store',    label: 'Store',    icon: <Store size={13} /> },
       { id: 'settings', label: 'Settings', icon: <Settings size={13} /> },
       { id: 'about',    label: 'About',    icon: <Info size={13} /> },
     ];
 
-    const timeStr = clock.toLocaleTimeString('pl-PL', {
+    const timeStr = clock.toLocaleTimeString(appSettings.language === 'pl' ? 'pl-PL' : 'en-US', {
       hour: '2-digit', minute: '2-digit', second: '2-digit',
     });
+
+    const accentRgb = hexToRgb(appSettings.accentColor);
 
     return (
       <div
       className="scanlines crt-vignette"
-      style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: 'var(--bg)', position: 'relative' }}
+      style={{
+        height: '100vh', display: 'flex', flexDirection: 'column', background: 'var(--bg)', position: 'relative',
+            '--accent': appSettings.accentColor,
+            '--accent-rgb': accentRgb,
+      } as React.CSSProperties}
       >
-      <ParticlesBackground />
+      {appSettings.particlesEnabled && <ParticlesBackground accentRgb={accentRgb} />}
 
       {/* ── Title bar ── */}
       <div
@@ -99,14 +117,14 @@ const App: React.FC = () => {
       <div style={{ display: 'flex', alignItems: 'center', gap: '10px', pointerEvents: 'none' }}>
       <div style={{
         width: '8px', height: '8px', borderRadius: '50%',
-        background: '#2a8fff',
-        animation: 'pulse-green 2s ease-in-out infinite',
-        boxShadow: '0 0 8px rgba(42,143,255,0.7)',
+        background: 'var(--accent)',
+            animation: 'pulse-green 2s ease-in-out infinite',
+            boxShadow: '0 0 8px rgba(var(--accent-rgb),0.7)',
       }} />
       <span style={{
         fontFamily: 'Orbitron, monospace', fontSize: '12px', fontWeight: 900,
-        color: '#2a8fff', letterSpacing: '4px', textTransform: 'uppercase',
-        textShadow: '0 0 12px rgba(42,143,255,0.5)',
+        color: 'var(--accent)', letterSpacing: '4px', textTransform: 'uppercase',
+            textShadow: '0 0 12px rgba(var(--accent-rgb),0.5)',
       }}>
       HACKEROS<span style={{ color: 'var(--text-dim)', fontWeight: 400, marginLeft: '6px' }}>GAMES</span>
       </span>
@@ -143,6 +161,7 @@ const App: React.FC = () => {
         <button
         key={i}
         onClick={() => winControl(btn.action)}
+        title={btn.action === 'close' && appSettings.minimizeOnClose ? 'Minimize (close-to-minimize enabled)' : undefined}
         style={{
           width: '24px', height: '24px',
           background: 'transparent',
@@ -180,10 +199,19 @@ const App: React.FC = () => {
         <GamesSection games={GAMES} playtime={playtime} onLaunch={handleGameLaunch} />
       )}
       {activeSection === 'addons' && (
-        <AddonsSection addons={ADDONS} games={GAMES} />
+        <AddonsSection />
+      )}
+      {activeSection === 'store' && (
+        <StoreSection />
       )}
       {activeSection === 'settings' && (
-        <SettingsSection games={GAMES} gameSettings={gameSettings} onSave={handleSaveSettings} />
+        <SettingsSection
+        games={GAMES}
+        gameSettings={gameSettings}
+        appSettings={appSettings}
+        onSaveGame={handleSaveGameSettings}
+        onSaveApp={handleSaveAppSettings}
+        />
       )}
       {activeSection === 'about' && <AboutSection />}
       </div>
