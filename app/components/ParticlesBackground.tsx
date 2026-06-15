@@ -1,7 +1,14 @@
 import React, { useEffect, useRef } from 'react';
 
-const ParticlesBackground: React.FC = () => {
+interface Props {
+  /** "r,g,b" string used for the particle dots. Defaults to the HackerOS blue accent. */
+  accentRgb?: string;
+}
+
+const ParticlesBackground: React.FC<Props> = ({ accentRgb = '42,143,255' }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const accentRef = useRef(accentRgb);
+  accentRef.current = accentRgb;
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -27,6 +34,7 @@ const ParticlesBackground: React.FC = () => {
 
     const draw = () => {
       ctx.clearRect(0, 0, w, h);
+      const rgb = accentRef.current;
       for (const p of particles) {
         p.x += p.vx;
         p.y += p.vy;
@@ -34,7 +42,7 @@ const ParticlesBackground: React.FC = () => {
         if (p.y < 0 || p.y > h) p.vy *= -1;
         ctx.beginPath();
         ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(42,143,255,${p.opacity})`;
+        ctx.fillStyle = `rgba(${rgb},${p.opacity})`;
         ctx.fill();
       }
       for (let i = 0; i < particles.length; i++) {
