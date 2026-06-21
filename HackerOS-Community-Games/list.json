@@ -16,6 +16,7 @@
             "description-en": "A game known from the Linux distribution LegendaryOS.",
             "description-pl": "Gra znana z dystrybucji Linuxa LegendaryOS."
             "install": "https://github.com/LegendaryOS-Linux-System/LegendaryOS-Game.git",
+            "autors": "LegendaryOS Team / michal92299"
             "image": "https://raw.githubusercontent.com/LegendaryOS-Linux-System/LegendaryOS-Game/main/images/icon.png"
         },
         {
