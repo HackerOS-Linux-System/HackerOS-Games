@@ -4,9 +4,11 @@
             "id": 1,
             "title": "",
             "genre": "",
-            "description": "",
+            "description-en": "",
+            "description-pl": "",
             "install": "",
             "repo": "",
+            "authors": "",
             "image": ""
         },
         {
@@ -14,18 +16,20 @@
             "title": "LegendaryOS Game",
             "genre": "Sandbox / Survival",
             "description-en": "A game known from the Linux distribution LegendaryOS.",
-            "description-pl": "Gra znana z dystrybucji Linuxa LegendaryOS."
+            "description-pl": "Gra znana z dystrybucji Linuxa LegendaryOS.",
             "install": "https://github.com/LegendaryOS-Linux-System/LegendaryOS-Game.git",
-            "autors": "LegendaryOS Team / michal92299"
+            "authors": "LegendaryOS Team / michal92299",
             "image": "https://raw.githubusercontent.com/LegendaryOS-Linux-System/LegendaryOS-Game/main/images/icon.png"
         },
         {
             "id": 3,
             "title": "",
             "genre": "",
-            "description": "",
+            "description-en": "",
+            "description-pl": "",
             "install": "",
             "repo": "",
+            "authors": "",
             "image": ""
         }
     ]
