@@ -11,12 +11,12 @@
         },
         {
             "id": 2,
-            "title": "game",
+            "title": "LegendaryOS Game",
             "genre": "Sandbox / Survival",
-            "description": "example",
-            "install": "https://github.com/HackerOS-Linux-System/HackerOS-Community-Games/releases/download/game/mygame.tar.gz",
-            "repo": "https://github.com/run/elf",
-            "image": "https://raw.githubusercontent.com/HackerOS-Linux-System/HackerOS-Community-Games/main/images/image.png"
+            "description-en": "A game known from the Linux distribution LegendaryOS.",
+            "description-pl": "Gra znana z dystrybucji Linuxa LegendaryOS."
+            "install": "https://github.com/LegendaryOS-Linux-System/LegendaryOS-Game.git",
+            "image": "https://raw.githubusercontent.com/LegendaryOS-Linux-System/LegendaryOS-Game/main/images/icon.png"
         },
         {
             "id": 3,
