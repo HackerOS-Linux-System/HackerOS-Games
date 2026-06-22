@@ -8,7 +8,7 @@
 > cd starblaster && cargo build --release && cd ..
 > cd bark-squadron && npm run tauri build && cd ..
 > cd cosmonaut && zip -r cosmonaut.love * && cd ..
-> cd app && npm run build
+> cd app && npm install && npm run tauri build
 
 ! Build addons HackerOS Games
 ! > cd addons
