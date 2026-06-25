@@ -224,6 +224,7 @@ function advanceMonth(gs)
             a.budget      = a.budget + math.floor(m.cost / 4)
             a.reputation  = math.min(100, a.reputation + 3)
             pushNotification(gs, "SUCCESS: " .. m.name .. " returned!")
+            completeContract(a, gs, m.mission_type)
             updateBodyExploration(gs, m)
             -- Milestones
             if m.destination == "Earth Orbit" and not a.milestones.orbit then
@@ -309,4 +310,37 @@ function applyResearchUnlock(a, r)
     if r.area == "ArtificialGravity" then a.unlocks["art_gravity"]    = true end
     if r.area == "AdvancedSensors"   then a.unlocks["deep_comms"]     = true end
     table.insert(a.completed_research or {}, r.name)
+end
+
+-- Patch advanceMonth to include contracts, rivals and milestone events
+local _origAdvanceMonth = advanceMonth
+function advanceMonth(gs)
+    local a = gs.agency
+    if not a then return end
+    -- Init rivals on first call if needed (must be before _origAdvanceMonth calls updateRivals)
+    if not gs.rivals then
+        gs.rivals = {}
+        for i = 1, 4 do table.insert(gs.rivals, newRival(i)) end
+    end
+    _origAdvanceMonth(gs)
+    -- Contracts
+    tickContracts(a, gs)
+    generateContracts(a, 5)  -- keep pool full
+    -- Milestone event triggers
+    if a.milestones then
+        local mlMap = {
+            orbit       = "orbit",
+            moon_orbit  = "moon_orbit",
+            moon_landing= "moon_landing",
+        }
+        if not gs._milestoneFired then gs._milestoneFired = {} end
+        for k, ek in pairs(mlMap) do
+            if a.milestones[k] and not gs._milestoneFired[k] then
+                triggerMilestoneEvent(gs, ek)
+                gs._milestoneFired[k] = true
+            end
+        end
+    end
+    -- Disaster chance
+    maybeTriggerDisaster(gs)
 end
