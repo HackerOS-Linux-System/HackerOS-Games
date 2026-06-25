@@ -997,3 +997,207 @@ function drawRivalries(gs)
         drawText(">> " .. rn.msg, 28, feedY + (i-1) * 18, 13, rn.col or COL_RED)
     end
 end
+
+-- ── Star Map Screen ───────────────────────────────────────────────────────────
+
+function drawStarMapScreen(gs)
+    local cx = SCREEN_W / 2
+    local cy = SCREEN_H / 2 - 20
+    local t  = gs.starAnim or 0
+    local zoom = gs.smapZoom or 1.0
+    local mx, my = love.mouse.getPosition()
+
+    drawStarmap(gs, cx, cy, t, zoom)
+    starmapTooltip(gs, mx, my, cx, cy, t, zoom)
+
+    -- Zoom indicator
+    setColor(COL_DIM)
+    love.graphics.print(string.format("ZOOM %.1f×  ( +/- or scroll )", zoom), 30, SCREEN_H - 80, 0, 0.82)
+    love.graphics.print("Right-click to reset zoom", 30, SCREEN_H - 62, 0, 0.75)
+
+    -- Legend
+    local lx = SCREEN_W - 180
+    local ly = 80
+    setColor(COL_PANEL)
+    love.graphics.rectangle("fill", lx - 10, ly - 10, 170, 100, 4, 4)
+    setColor(COL_BORDER)
+    love.graphics.rectangle("line", lx - 10, ly - 10, 170, 100, 4, 4)
+    local legend = {
+        {col=COL_GOLD,   txt="Probed"},
+        {col=COL_ACCENT, txt="Orbited"},
+        {col=COL_GREEN,  txt="Landed"},
+    }
+    setColor(COL_DIM)
+    love.graphics.print("EXPLORATION", lx, ly, 0, 0.78)
+    ly = ly + 16
+    for _, l in ipairs(legend) do
+        love.graphics.setColor(l.col)
+        love.graphics.circle("fill", lx + 6, ly + 5, 5)
+        setColor(COL_TEXT)
+        love.graphics.print(l.txt, lx + 16, ly, 0, 0.8)
+        ly = ly + 18
+    end
+end
+
+-- ── Contracts Screen ──────────────────────────────────────────────────────────
+
+function drawContracts(gs)
+    local a = gs.agency
+    if not a then return end
+    local y = 80
+
+    setColor(COL_TEXT)
+    love.graphics.print("CONTRACTS", 30, y, 0, 1.3)
+    setColor(COL_DIM)
+    love.graphics.print("Government & private mission contracts  |  Complete linked missions to earn payouts.", 30, y + 28, 0, 0.8)
+    y = y + 56
+
+    -- Refresh button
+    if clickButton(SCREEN_W - 160, 80, 130, 30, "REFRESH ($5M)", COL_ACCENT) then
+        if a.budget >= 5 then
+            a.budget = a.budget - 5
+            generateContracts(a, 5)
+        else
+            pushNotification(gs, "Insufficient budget to refresh contracts.")
+        end
+    end
+
+    a.contracts = a.contracts or {}
+    if #a.contracts == 0 then
+        setColor(COL_DIM)
+        love.graphics.print("No contracts available. Click REFRESH to generate new offers.", 30, y + 20, 0, 0.85)
+        return
+    end
+
+    for _, c in ipairs(a.contracts) do
+        if c.status == "Open" then
+            -- Row bg
+            setColor(COL_PANEL)
+            love.graphics.rectangle("fill", 20, y, SCREEN_W - 40, 58, 3, 3)
+            setColor(COL_BORDER)
+            love.graphics.rectangle("line", 20, y, SCREEN_W - 40, 58, 3, 3)
+
+            setColor(COL_TEXT)
+            love.graphics.print(c.name, 32, y + 8, 0, 0.92)
+            setColor(COL_DIM)
+            love.graphics.print(c.desc, 32, y + 26, 0, 0.78)
+            love.graphics.print("Type: " .. c.type, 32, y + 42, 0, 0.72)
+            setColor(COL_GREEN)
+            love.graphics.print("$" .. c.payout .. "M", SCREEN_W - 300, y + 18, 0, 0.88)
+            local urgency = c.months_left <= 3 and COL_RED or (c.months_left <= 6 and COL_GOLD or COL_DIM)
+            love.graphics.setColor(urgency)
+            love.graphics.print(c.months_left .. " mo left", SCREEN_W - 200, y + 18, 0, 0.82)
+            setColor(COL_ACCENT)
+            love.graphics.print("+" .. c.rep .. " rep", SCREEN_W - 110, y + 18, 0, 0.82)
+
+            y = y + 66
+        elseif c.status == "Complete" then
+            setColor(0.1, 0.3, 0.15, 0.6)
+            love.graphics.rectangle("fill", 20, y, SCREEN_W - 40, 36, 3, 3)
+            setColor(COL_GREEN, 0.7)
+            love.graphics.print("✓ " .. c.name, 32, y + 10, 0, 0.8)
+            y = y + 44
+        end
+    end
+end
+
+-- ── Tech Tree Screen ──────────────────────────────────────────────────────────
+
+function drawTechTree(gs)
+    local a = gs.agency
+    if not a then return end
+    local y = 80
+
+    setColor(COL_TEXT)
+    love.graphics.print("TECH TREE", 30, y, 0, 1.3)
+    setColor(COL_DIM)
+    love.graphics.print(string.format("Science Points: %.0f  |  Research unlocks new capabilities and improves mission success.", a.science_pts or 0), 30, y + 28, 0, 0.82)
+    y = y + 58
+
+    local done, total = researchSummary(a)
+    setColor(COL_ACCENT)
+    love.graphics.print(string.format("Progress: %d / %d", done, total), 30, y, 0, 0.85)
+    -- Progress bar
+    setColor(COL_PANEL2)
+    love.graphics.rectangle("fill", 200, y, 400, 14, 3, 3)
+    setColor(COL_ACCENT, 0.7)
+    love.graphics.rectangle("fill", 200, y, 400 * done / math.max(total, 1), 14, 3, 3)
+    setColor(COL_BORDER)
+    love.graphics.rectangle("line", 200, y, 400, 14, 3, 3)
+    y = y + 30
+
+    a.research = a.research or buildResearchList(a.unlocks)
+
+    local tiers = {1, 2, 3}
+    for _, tier in ipairs(tiers) do
+        -- Tier label
+        local tier_cols = {COL_GREEN, COL_GOLD, COL_RED}
+        love.graphics.setColor(tier_cols[tier])
+        love.graphics.print("TIER " .. tier, 30, y, 0, 0.82)
+        y = y + 20
+
+        for _, r in ipairs(a.research) do
+            if r.tier == tier then
+                local active = r.progress > 0 and not r.completed
+                local blocked = false
+                -- Check requires again for display
+                for _, req in ipairs(r.requires) do
+                    if not (a.unlocks and a.unlocks[req]) then blocked = true; break end
+                end
+
+                local bg = r.completed and {0.06,0.22,0.1,0.9}
+                           or active    and {0.1,0.1,0.28,0.9}
+                           or blocked   and {0.08,0.08,0.10,0.6}
+                           or           COL_PANEL
+                love.graphics.setColor(bg)
+                love.graphics.rectangle("fill", 20, y, SCREEN_W - 40, 50, 3, 3)
+                local brd = r.completed and COL_GREEN or active and COL_ACCENT or blocked and COL_BORDER or COL_BORDER
+                love.graphics.setColor(brd)
+                love.graphics.rectangle("line", 20, y, SCREEN_W - 40, 50, 3, 3)
+
+                -- Name
+                local nc = r.completed and COL_GREEN or blocked and COL_DIM or COL_TEXT
+                love.graphics.setColor(nc)
+                love.graphics.print(r.name, 32, y + 7, 0, 0.88)
+                setColor(COL_DIM)
+                love.graphics.print(r.desc, 32, y + 26, 0, 0.74)
+                -- Area tag
+                love.graphics.setColor(tier_cols[tier])
+                love.graphics.print(r.area, 420, y + 7, 0, 0.72)
+                -- Cost
+                setColor(COL_GOLD)
+                love.graphics.print(r.cost .. " SP", SCREEN_W - 320, y + 10, 0, 0.82)
+                -- Duration
+                setColor(COL_DIM)
+                love.graphics.print(r.duration .. " mo", SCREEN_W - 240, y + 10, 0, 0.78)
+
+                if r.completed then
+                    setColor(COL_GREEN)
+                    love.graphics.print("COMPLETE", SCREEN_W - 160, y + 18, 0, 0.82)
+                elseif active then
+                    -- Progress bar
+                    setColor(COL_PANEL2)
+                    love.graphics.rectangle("fill", SCREEN_W - 170, y + 16, 120, 10, 2, 2)
+                    setColor(COL_ACCENT)
+                    love.graphics.rectangle("fill", SCREEN_W - 170, y + 16, 120 * (r.progress / r.duration), 10, 2, 2)
+                    setColor(COL_DIM)
+                    love.graphics.print(string.format("%.0f%%", r.progress / r.duration * 100), SCREEN_W - 40, y + 14, 0, 0.72)
+                elseif not blocked then
+                    if clickButton(SCREEN_W - 170, y + 12, 110, 26, "RESEARCH", COL_ACCENT) then
+                        if (a.science_pts or 0) >= r.cost then
+                            startResearch(a, r)
+                        else
+                            pushNotification(gs, "Need " .. r.cost .. " Science Points (have " .. math.floor(a.science_pts or 0) .. ")")
+                        end
+                    end
+                else
+                    setColor(COL_DIM)
+                    love.graphics.print("LOCKED", SCREEN_W - 145, y + 18, 0, 0.72)
+                end
+
+                y = y + 58
+            end
+        end
+        y = y + 10
+    end
+end
