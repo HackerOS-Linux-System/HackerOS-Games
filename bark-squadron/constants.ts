@@ -1,4 +1,3 @@
-// Physics - JET STYLE
 export const GRAVITY = 0.06;
 export const DRAG = 0.99;   // Less drag for jets
 export const THRUST = 0.25;  // Higher thrust
