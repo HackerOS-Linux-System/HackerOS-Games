@@ -81,3 +81,4 @@ const ParticlesBackground: React.FC<Props> = ({ accentRgb = '42,143,255' }) => {
 };
 
 export default ParticlesBackground;
+
