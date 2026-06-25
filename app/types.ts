@@ -42,15 +42,15 @@ export interface AddonGameConfig {
   loveFile: string;
 }
 
-/** Global, application-wide preferences (separate from per-game settings). */
+/** Global, application-wide preferences. */
 export interface AppSettings {
   language: 'en' | 'pl';
   particlesEnabled: boolean;
-  /** When enabled, the title bar's close button minimizes instead of quitting. */
+  /** When enabled, the title bar close button minimizes instead of quitting. */
   minimizeOnClose: boolean;
   /** Re-check addon installation status whenever the Addons tab is opened. */
   autoCheckAddons: boolean;
-  /** Hex color used for the UI accent (logo, active tab, highlights, particles). */
+  /** Hex color used for the UI accent. */
   accentColor: string;
 }
 
@@ -60,13 +60,30 @@ export interface AccentPreset {
   rgb: string;
 }
 
-/** A single entry from the HackerOS Community Games store listing. */
+/** A single entry from the HackerOS Community Games store listing (list.json). */
 export interface CommunityGame {
   id: number;
   title: string;
   genre: string;
-  description: string;
+  /** Description in English. */
+  'description-en': string;
+  /** Description in Polish. */
+  'description-pl': string;
+  /** URL used to install (git repo, zip, binary, etc.) */
   install: string;
-  repo: string;
+  /** Optional direct repository URL for browsing source. */
+  repo?: string;
+  authors: string;
   image: string;
 }
+
+/** A community game that has been installed locally. */
+export interface CommunityGameInstall {
+  game_id: string;
+  title: string;
+  /** Detected type: binary | python | ruby | love | zip | tar | unknown */
+  install_type: string;
+  install_path: string;
+  installed_at: number;
+}
+
