@@ -3,13 +3,14 @@ export enum GameState {
   BRIEFING,
   PLAYING,
   PAUSED,
-  GAME_OVER
+  GAME_OVER,
+  LEADERBOARD,
 }
 
 export enum EnemyType {
   GRUNT = 'grunt',
   ACE = 'ace',
-  BOMBER = 'bomber'
+  BOMBER = 'bomber',
 }
 
 export interface Vector2 {
@@ -21,28 +22,28 @@ export interface Entity {
   id: string;
   pos: Vector2;
   velocity: Vector2;
-  angle: number; // in radians
+  angle: number;
   radius: number;
   dead: boolean;
 }
 
 export interface Plane extends Entity {
   type: 'player' | 'enemy';
-  enemyType?: EnemyType; // Only for enemies
+  enemyType?: EnemyType;
   hp: number;
   maxHp: number;
   cooldown: number;
   ammo: number;
-  team: number; // 0 = player, 1 = enemy
+  team: number;
   color: string;
-  rotationSpeed: number; // Individual agility
-  speedStat: number;     // Individual max speed
+  rotationSpeed: number;
+  speedStat: number;
   afterburner: boolean;
 }
 
 export interface Bullet extends Entity {
   team: number;
-  life: number; // Frames remaining
+  life: number;
 }
 
 export interface Particle extends Entity {
@@ -64,5 +65,14 @@ export interface GameSettings {
   showHitboxes: boolean;
   particles: boolean;
   highQuality: boolean;
-  sensitivity: number; // 0.5 to 2.0
+  sensitivity: number;
+  volume: number;
+}
+
+export interface HighScore {
+  score: number;
+  wave: number;
+  kills: number;
+  difficulty: string;
+  timestamp: number;
 }
