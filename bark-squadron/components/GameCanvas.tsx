@@ -13,12 +13,14 @@ interface GameCanvasProps {
   setGameState: (state: GameState) => void;
   setStats: React.Dispatch<React.SetStateAction<GameStats>>;
   setPlayerHp: (hp: number) => void;
-  onGameOver: () => void;
+  onGameOver: (finalStats: GameStats) => void;
 }
 
 const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, settings, setGameState, setStats, setPlayerHp, onGameOver }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const requestRef = useRef<number>(0);
+
+  const statsRef = useRef<GameStats>({ score: 0, wave: 1, kills: 0 });
 
   // Mutable game state
   const gameRef = useRef({
@@ -48,7 +50,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, settings, setGameSta
   // --- Core Game Logic ---
 
   // BUG FIX: Completely reset the game state
-  const resetGame = (width: number, height: number) => {
+  const resetGame = (_width: number, _height: number) => {
     gameRef.current.player = {
       id: 'player',
       type: 'player',
@@ -169,7 +171,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, settings, setGameSta
       resetGame(canvas.width, canvas.height);
     }
 
-    const loop = (time: number) => {
+    const loop = (_time: number) => {
       if (gameState === GameState.PLAYING) {
         update(canvas.width, canvas.height);
         draw(ctx, canvas.width, canvas.height);
@@ -197,7 +199,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, settings, setGameSta
 
     if (game.enemies.length === 0) {
       game.wave++;
-      setStats(prev => ({ ...prev, wave: game.wave }));
+      setStats(prev => { const n = { ...prev, wave: game.wave }; statsRef.current = n; return n; });
       spawnWave(game.wave);
     }
 
@@ -296,7 +298,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, settings, setGameSta
       p.dead = true;
       game.shake = 30;
       createExplosion(game, p.pos.x, p.pos.y, 80, '#ffffff');
-      setTimeout(onGameOver, 1500);
+      setTimeout(() => onGameOver(statsRef.current), 1500);
     }
 
     // --- Enemy AI ---
@@ -398,7 +400,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, settings, setGameSta
               createExplosion(game, e.pos.x, e.pos.y, e.enemyType === EnemyType.BOMBER ? 80 : 40, e.color);
               game.enemies.splice(j, 1);
               game.shake += 5;
-              setStats(prev => ({ ...prev, score: prev.score + (e.enemyType === 'bomber' ? 500 : 150), kills: prev.kills + 1 }));
+              setStats(prev => { const n = { ...prev, score: prev.score + (e.enemyType === 'bomber' ? 500 : 150), kills: prev.kills + 1 }; statsRef.current = n; return n; });
             }
             break;
           }
@@ -568,7 +570,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, settings, setGameSta
     const endX = camX + width * 2;
 
     for (let y = SEA_LEVEL; y < SEA_LEVEL + 500; y += 30) {
-      const parallax = (y - SEA_LEVEL) * 0.05 + 0.1;
+      // parallax unused
       const offset = Math.sin(y * 0.1 + frame * 0.02) * 20;
 
       ctx.beginPath();
@@ -629,7 +631,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, settings, setGameSta
     ctx.rotate(p.angle);
 
     const mainColor = p.color;
-    const isEnemy = p.team === 1;
+    // isEnemy unused
 
     // --- JET DRAWING ---
 
@@ -799,8 +801,8 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, settings, setGameSta
     return dist < (a.radius + b.radius);
   };
 
-  const lightenColor = (col: string, amt: number) => col;
-  const darkenColor = (col: string, amt: number) => col;
+  const lightenColor = (col: string, _amt: number) => col;
+  const darkenColor = (col: string, _amt: number) => col;
 
   return <canvas ref={canvasRef} className="w-full h-full block" />;
 };
