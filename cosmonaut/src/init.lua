@@ -192,3 +192,29 @@ function newGameState()
     initStars(gs)
     return gs
 end
+
+-- Patch newGameState to initialise contracts, tech-tree unlocks, rival news
+local _origNewGameState = newGameState
+function newGameState()
+    local s = _origNewGameState()
+    s.smapZoom  = 1.0
+    s.rivalNews = {}
+    return s
+end
+
+-- Patch newAgency to add contracts + unlocks
+local _origNewAgency = newAgency
+function newAgency(name, acronym, flag)
+    local a = _origNewAgency(name, acronym, flag)
+    a.unlocks            = {}
+    a.completed_research = {}
+    a.contracts          = {}
+    a.science_pts        = a.science_pts or 20
+    -- initialise research from tech tree
+    a.research = buildResearchList(a.unlocks)
+    -- generate initial contracts
+    generateContracts(a, 5)
+    -- 3 rivals
+    a.rivals = nil  -- rivals live on gs, not agency
+    return a
+end
