@@ -83,3 +83,21 @@ RESEARCH_AREAS = {
     "MaterialScience","Robotics",      "NuclearPropulsion",
     "ArtificialGravity","Cryogenics",  "AdvancedSensors",
 }
+
+-- New screens added in v0.2
+SCREENS.CONTRACTS = "Contracts"
+SCREENS.TECH_TREE = "TechTree"
+
+-- Extended nav tabs (now 10 items, bound to keys 1-0)
+NAV_TABS = {
+    {label="CONTROL",    screen=SCREENS.DASHBOARD,   col=COL_ACCENT},
+    {label="ROCKETS",    screen=SCREENS.ROCKETS,     col=COL_ORANGE},
+    {label="CREW",       screen=SCREENS.ASTRONAUTS,  col=COL_GREEN},
+    {label="MISSIONS",   screen=SCREENS.MISSIONS,    col=COL_GOLD},
+    {label="R&D",        screen=SCREENS.RESEARCH,    col=COL_PURPLE},
+    {label="TECH",       screen=SCREENS.TECH_TREE,   col=COL_CYAN},
+    {label="STAR MAP",   screen=SCREENS.STAR_MAP,    col=COL_ACCENT},
+    {label="BASE",       screen=SCREENS.FACILITIES,  col=COL_DIM},
+    {label="CONTRACTS",  screen=SCREENS.CONTRACTS,   col=COL_GOLD},
+    {label="RIVALS",     screen=SCREENS.RIVALRIES,   col=COL_RED},
+}
