@@ -1,1 +1,9 @@
+[workspace]
+-> name    => isolator-workspace
+-> version => 0.9
+-> mode    => standard
+-> members => ["addons/hackeros-game_virus", "addons/hacker-game"]
 
+[build]
+-> parallel => true
+-> cache    => build/cache/
