@@ -1,0 +1,167 @@
+use "std -> strings" from "str"
+use "std -> conv" from "conv"
+
+mod h2d_save
+mod types
+mod data
+
+;; The Racer — save.h#  (port of the-racer/src/save.rs)
+;; serde_json is replaced by h2d_save (`key=value` lines) -> the-racer-save.sav.
+;; Strings are %-escaped so names may contain , ~ and %.
+
+fn save_path() -> string is return "the-racer-save.sav" end
+
+fn esc(s: string) -> string is
+    let mut o: string = str::replace_all(s, "%", "%25")
+    o = str::replace_all(o, ",", "%2C")
+    o = str::replace_all(o, "~", "%7E")
+    return o
+end
+
+fn unesc(s: string) -> string is
+    let mut o: string = str::replace_all(s, "%2C", ",")
+    o = str::replace_all(o, "%7E", "~")
+    o = str::replace_all(o, "%25", "%")
+    return o
+end
+
+fn b2s(b: bool) -> string is
+    if b is return "1" end
+    return "0"
+end
+
+fn join(parts: [string]) -> string is
+    return str::join(parts, ",")
+end
+
+fn gi(p: [string], i: int) -> int is
+    return conv::str_to_int(p[i])
+end
+
+fn enc_driver(d: types::Driver) -> string is
+    return join([esc(d.name), esc(d.nationality), to_string(d.age), to_string(d.pace), to_string(d.consistency),
+        to_string(d.wet_skill), to_string(d.tire_mgmt), to_string(d.experience), to_string(d.salary),
+        to_string(d.morale), to_string(d.contract_years), to_string(d.career_wins), to_string(d.races)])
+end
+
+fn dec_driver(s: string) -> (bool, types::Driver) is
+    let p: [string] = str::split(s, ",")
+    if p.len() < 13 is return (false, types::empty_driver()) end
+    return (true, types::Driver {
+        name: unesc(p[0]), nationality: unesc(p[1]), age: gi(p, 2), pace: gi(p, 3), consistency: gi(p, 4),
+        wet_skill: gi(p, 5), tire_mgmt: gi(p, 6), experience: gi(p, 7), salary: gi(p, 8),
+        morale: gi(p, 9), contract_years: gi(p, 10), career_wins: gi(p, 11), races: gi(p, 12),
+    })
+end
+
+fn enc_result(r: types::RaceResult) -> string is
+    let mut pits: [string] = []
+    let mut i: int = 0
+    while i < r.pit_stops.len() is
+        pits.push(esc(r.pit_stops[i]))
+        i += 1
+    end
+    return join([to_string(r.round), esc(r.circuit), to_string(r.driver1_pos), to_string(r.driver2_pos),
+        to_string(r.driver1_points), to_string(r.driver2_points), b2s(r.fastest_lap), to_string(r.dnf_driver),
+        b2s(r.wet_race), str::join(pits, "~")])
+end
+
+fn dec_result(s: string) -> (bool, types::RaceResult) is
+    let p: [string] = str::split(s, ",")
+    if p.len() < 9 is return (false, types::empty_result()) end
+    let mut pits: [string] = []
+    if p.len() > 9 && p[9].len() > 0 is
+        let raw: [string] = str::split(p[9], "~")
+        let mut i: int = 0
+        while i < raw.len() is
+            pits.push(unesc(raw[i]))
+            i += 1
+        end
+    end
+    return (true, types::RaceResult {
+        round: gi(p, 0), circuit: unesc(p[1]), driver1_pos: gi(p, 2), driver2_pos: gi(p, 3),
+        driver1_points: gi(p, 4), driver2_points: gi(p, 5), fastest_lap: p[6] == "1", dnf_driver: gi(p, 7),
+        wet_race: p[8] == "1", pit_stops: pits,
+    })
+end
+
+pub fn save_game(gs: types::AppState) is
+    if !gs.has_team is return end
+    let t: types::Team = gs.team
+    let mut sv: h2d_save::Save = h2d_save::new_save(save_path())
+    sv = h2d_save::set_str(sv, "team", join([esc(t.name), to_string(t.budget), to_string(t.series), to_string(t.current_round),
+        to_string(t.standings_points), to_string(t.car.chassis), to_string(t.car.engine), to_string(t.car.reliability),
+        to_string(t.car.tire_deg), to_string(t.car.pit_speed), to_string(t.car.aero_balance)]))
+    sv = h2d_save::set_str(sv, "driver1", enc_driver(t.driver1))
+    sv = h2d_save::set_str(sv, "driver2", enc_driver(t.driver2))
+    sv = h2d_save::set_int(sv, "rd_n", t.rd_projects.len())
+    let mut i: int = 0
+    while i < t.rd_projects.len() is
+        let r: types::RdProject = t.rd_projects[i]
+        sv = h2d_save::set_str(sv, "rd_" + to_string(i), join([esc(r.name), esc(r.target), to_string(r.cost), to_string(r.duration), to_string(r.boost)]))
+        i += 1
+    end
+    sv = h2d_save::set_int(sv, "rr_n", t.race_results.len())
+    i = 0
+    while i < t.race_results.len() is
+        sv = h2d_save::set_str(sv, "rr_" + to_string(i), enc_result(t.race_results[i]))
+        i += 1
+    end
+    sv = h2d_save::set_int(sv, "opp_n", gs.opponents.len())
+    i = 0
+    while i < gs.opponents.len() is
+        sv = h2d_save::set_int(sv, "opp_" + to_string(i), gs.opponents[i].points)
+        i += 1
+    end
+    let _ok: bool = h2d_save::commit(sv)
+end
+
+;; Returns (state, loaded). On success: team + opponents restored, screen = Dashboard.
+pub fn load_game(mut gs: types::AppState) -> (types::AppState, bool) is
+    let sv: h2d_save::Save = h2d_save::load(save_path())
+    if !h2d_save::has(sv, "team") is return (gs, false) end
+    let p: [string] = str::split(h2d_save::get_str(sv, "team", ""), ",")
+    if p.len() < 11 is return (gs, false) end
+    let d1 = dec_driver(h2d_save::get_str(sv, "driver1", ""))
+    let d2 = dec_driver(h2d_save::get_str(sv, "driver2", ""))
+    if !d1.0 || !d2.0 is return (gs, false) end
+
+    let mut t: types::Team = types::empty_team()
+    t.name = unesc(p[0])
+    t.budget = gi(p, 1)
+    t.series = gi(p, 2)
+    t.current_round = gi(p, 3)
+    t.standings_points = gi(p, 4)
+    t.car = types::Car { chassis: gi(p, 5), engine: gi(p, 6), reliability: gi(p, 7), tire_deg: gi(p, 8), pit_speed: gi(p, 9), aero_balance: gi(p, 10) }
+    t.driver1 = d1.1
+    t.driver2 = d2.1
+
+    let rn: int = h2d_save::get_int(sv, "rd_n", 0)
+    let mut i: int = 0
+    while i < rn is
+        let q: [string] = str::split(h2d_save::get_str(sv, "rd_" + to_string(i), ""), ",")
+        if q.len() < 5 is return (gs, false) end
+        t.rd_projects.push(types::RdProject { name: unesc(q[0]), target: unesc(q[1]), cost: gi(q, 2), duration: gi(q, 3), boost: gi(q, 4) })
+        i += 1
+    end
+    let rr: int = h2d_save::get_int(sv, "rr_n", 0)
+    i = 0
+    while i < rr is
+        let r = dec_result(h2d_save::get_str(sv, "rr_" + to_string(i), ""))
+        if !r.0 is return (gs, false) end
+        t.race_results.push(r.1)
+        i += 1
+    end
+
+    gs.opponents = data::generate_opponents(t.series)
+    let on: int = h2d_save::get_int(sv, "opp_n", 0)
+    i = 0
+    while i < on && i < gs.opponents.len() is
+        gs.opponents[i].points = h2d_save::get_int(sv, "opp_" + to_string(i), 0)
+        i += 1
+    end
+    gs.team = t
+    gs.has_team = true
+    gs.screen = types::sc_dashboard()
+    return (gs, true)
+end
