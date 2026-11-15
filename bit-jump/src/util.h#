@@ -1,0 +1,158 @@
+use "bit -> h2d"
+
+mod types
+
+;; Bit Jump — util.h#  (port of src/utils.lua + src/colors.lua)
+
+;; ── palettes: 12 floats = bg(3) grid1(3) grid2(3) accent(3) ───────────────
+pub fn level_colors(n: int) -> [f64] is
+    if n == 1 is return [0.04,0.04,0.12,0.10,0.10,0.40,0.08,0.08,0.30,0.0,1.0,0.5] end
+    if n == 2 is return [0.06,0.03,0.12,0.30,0.10,0.40,0.20,0.05,0.30,0.8,0.2,1.0] end
+    if n == 3 is return [0.12,0.04,0.02,0.40,0.15,0.05,0.30,0.10,0.02,1.0,0.5,0.1] end
+    if n == 4 is return [0.02,0.08,0.12,0.05,0.20,0.40,0.03,0.15,0.30,0.2,0.8,1.0] end
+    if n == 5 is return [0.08,0.02,0.08,0.30,0.05,0.30,0.20,0.03,0.20,1.0,0.2,0.8] end
+    if n == 6 is return [0.02,0.08,0.04,0.05,0.30,0.10,0.03,0.20,0.07,0.2,1.0,0.4] end
+    if n == 7 is return [0.10,0.06,0.02,0.40,0.25,0.05,0.30,0.18,0.03,1.0,0.7,0.1] end
+    if n == 8 is return [0.02,0.02,0.10,0.05,0.05,0.40,0.03,0.03,0.28,0.4,0.4,1.0] end
+    if n == 9 is return [0.08,0.02,0.02,0.40,0.05,0.05,0.28,0.03,0.03,1.0,0.2,0.2] end
+    if n == 10 is return [0.02,0.10,0.08,0.05,0.35,0.30,0.03,0.25,0.20,0.1,1.0,0.9] end
+    if n == 11 is return [0.10,0.08,0.02,0.40,0.30,0.05,0.30,0.22,0.03,1.0,0.9,0.2] end
+    if n == 12 is return [0.06,0.02,0.10,0.25,0.05,0.40,0.18,0.03,0.30,0.7,0.2,1.0] end
+    if n == 13 is return [0.10,0.02,0.04,0.40,0.05,0.15,0.30,0.03,0.10,1.0,0.1,0.4] end
+    if n == 14 is return [0.05,0.05,0.05,0.30,0.30,0.30,0.20,0.20,0.20,1.0,1.0,1.0] end
+    return level_colors_1()
+end
+
+fn level_colors_1() -> [f64] is
+    return [0.04,0.04,0.12,0.10,0.10,0.40,0.08,0.08,0.30,0.0,1.0,0.5]
+end
+
+;; ── theme palettes (settings.lua `themes`): bg(3) grid1(3) grid2(3) text(3) ─
+pub fn theme_colors(i: int) -> [f64] is
+    if i == 1 is return [0.85, 0.85, 0.9, 0.7, 0.7, 0.8, 0.75, 0.75, 0.85, 0.0, 0.0, 0.0] end
+    if i == 2 is return [0.02, 0.0, 0.05, 0.8, 0.0, 1.0, 0.0, 1.0, 0.8, 0.0, 1.0, 1.0] end
+    if i == 3 is return [0.1, 0.07, 0.02, 0.6, 0.4, 0.1, 0.4, 0.25, 0.05, 1.0, 0.8, 0.4] end
+    return [0.05, 0.05, 0.1, 0.1, 0.1, 0.3, 0.15, 0.15, 0.35, 1.0, 1.0, 1.0]
+end
+
+pub fn arr_color(a: [f64], at: int, alpha: f64) -> h2d_color::Color is
+    return types::rgba(a[at], a[at + 1], a[at + 2], alpha)
+end
+
+;; ── collisions ────────────────────────────────────────────────────────────
+pub fn rect_hit(ax: f64, ay: f64, aw: f64, ah: f64, bx: f64, by: f64, bw: f64, bh: f64) -> bool is
+    return ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by
+end
+
+;; rectangle vs circle (checkCircleCollision)
+pub fn rect_circle_hit(ax: f64, ay: f64, aw: f64, ah: f64, cx: f64, cy: f64, radius: f64) -> bool is
+    let closest_x: f64 = types::fmax(ax, types::fmin(cx, ax + aw))
+    let closest_y: f64 = types::fmax(ay, types::fmin(cy, ay + ah))
+    let dx: f64 = closest_x - cx
+    let dy: f64 = closest_y - cy
+    return (dx * dx + dy * dy) < (radius * radius)
+end
+
+;; ── particles / screen shake ──────────────────────────────────────────────
+pub fn create_particles(mut g: types::Game, x: f64, y: f64, count: int, r: f64, gr: f64, b: f64) -> types::Game is
+    let mut i: int = 0
+    while i < count is
+        g.player.particles.push(types::Particle {
+            x: x, y: y,
+            vx: types::i2f(types::rand_i(0 - 200, 200)),
+            vy: types::i2f(types::rand_i(0 - 200, 200)),
+            life: types::i2f(types::rand_i(30, 70)) / 100.0,
+            max_life: 0.7,
+            r: r, g: gr, b: b,
+        })
+        i += 1
+    end
+    return g
+end
+
+pub fn trigger_screen_shake(mut g: types::Game, intensity: f64, duration: f64) -> types::Game is
+    g.shake_timer = duration
+    g.shake_intensity = intensity
+    return g
+end
+
+pub fn update_screen_shake(mut g: types::Game, dt: f64) -> types::Game is
+    if g.shake_timer > 0.0 is
+        g.shake_timer -= dt
+        if g.shake_timer < 0.0 is g.shake_timer = 0.0 end
+    end
+    return g
+end
+
+;; returns (dx, dy)
+pub fn screen_shake_offset(g: types::Game) -> (f64, f64) is
+    if g.shake_timer > 0.0 is
+        let i: int = types::f2i(g.shake_intensity)
+        return (types::i2f(types::rand_i(0 - i, i)), types::i2f(types::rand_i(0 - i, i)))
+    end
+    return (0.0, 0.0)
+end
+
+;; ── save / load (love.filesystem txt files -> one h2d_save file) ──────────
+fn save_path() -> string is return "bit-jump.sav" end
+
+pub fn save_all(g: types::Game) is
+    let mut sv: h2d_save::Save = h2d_save::new_save(save_path())
+    sv = h2d_save::set_int(sv, "highscore", types::f2i(g.high_score))
+    sv = h2d_save::set_int(sv, "highestlevel", g.highest_level)
+    let mut i: int = 0
+    while i < types::ach_count() is
+        if g.achievements[i] is sv = h2d_save::set_int(sv, "ach_" + types::ach_name(i), 1) end
+        i += 1
+    end
+    let _ok: bool = h2d_save::commit(sv)
+end
+
+pub fn load_high_score() -> f64 is
+    let sv: h2d_save::Save = h2d_save::load(save_path())
+    return h2d_save::get_int(sv, "highscore", 0) + 0.0
+end
+
+pub fn load_highest_level() -> int is
+    let sv: h2d_save::Save = h2d_save::load(save_path())
+    return h2d_save::get_int(sv, "highestlevel", 1)
+end
+
+pub fn load_achievements() -> [bool] is
+    let sv: h2d_save::Save = h2d_save::load(save_path())
+    let mut a: [bool] = []
+    let mut i: int = 0
+    while i < types::ach_count() is
+        a.push(h2d_save::get_int(sv, "ach_" + types::ach_name(i), 0) == 1)
+        i += 1
+    end
+    return a
+end
+
+;; ── achievements ──────────────────────────────────────────────────────────
+pub fn unlock_achievement(mut g: types::Game, idx: int) -> types::Game is
+    if !g.achievements[idx] is
+        g.achievements[idx] = true
+        save_all(g)
+        g.notif_text.push("Osiągnięcie: " + types::ach_name(idx))
+        g.notif_timer.push(3.0)
+    end
+    return g
+end
+
+pub fn update_achievement_notifications(mut g: types::Game, dt: f64) -> types::Game is
+    let mut texts: [string] = []
+    let mut timers: [f64] = []
+    let mut i: int = 0
+    while i < g.notif_text.len() is
+        let t: f64 = g.notif_timer[i] - dt
+        if t > 0.0 is
+            texts.push(g.notif_text[i])
+            timers.push(t)
+        end
+        i += 1
+    end
+    g.notif_text = texts
+    g.notif_timer = timers
+    return g
+end
