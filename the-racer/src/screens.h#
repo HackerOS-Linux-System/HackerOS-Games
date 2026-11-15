@@ -1,0 +1,853 @@
+use "std -> strings" from "str"
+use "std -> conv" from "conv"
+use "bit -> h2d"
+
+mod types
+mod ui
+mod data
+mod simulation
+mod save
+mod text
+
+;; The Racer — screens.h#  (port of the-racer/src/screens.rs)
+;; Every screen takes the AppState by value and returns the new one.
+
+fn f2i(x: f64) -> int is
+    return types::f2i(x)
+end
+
+;; "{:.0}" of a non-negative value
+fn fmt0(x: f64) -> string is
+    return to_string(f2i(x + 0.5))
+end
+
+;; ── Main Menu ─────────────────────────────────────────────────────────────
+
+pub fn draw_main_menu(fo: text::Fonts, mut gs: types::AppState) -> types::AppState is
+    h2d_gfx::clear_background(types::c_bg())
+    let title: string = "THE RACER"
+    let sub: string = "MOTORSPORT MANAGEMENT SIMULATOR"
+    let tw: f64 = text::width(fo, title, 72)
+    let sw2: f64 = text::width(fo, sub, 18)
+    let sw: f64 = ui::sw()
+    let sh: f64 = ui::sh()
+    text::draw(fo, title, sw / 2.0 - tw / 2.0, sh * 0.28, 72, types::c_accent())
+    text::draw(fo, sub, sw / 2.0 - sw2 / 2.0, sh * 0.28 + 60.0, 18, types::c_text_dim())
+    h2d_gfx::draw_line(sw / 2.0 - 200.0, sh * 0.38, sw / 2.0 + 200.0, sh * 0.38, 1.0, types::c_border())
+
+    let bw: f64 = 260.0
+    let bh: f64 = 46.0
+    let bx: f64 = sw / 2.0 - bw / 2.0
+    if ui::button(fo, "NEW SEASON", bx, sh * 0.42, bw, bh, types::c_accent()) is
+        gs.screen = types::sc_series_select()
+    end
+    if ui::button(fo, "CONTINUE", bx, sh * 0.42 + 58.0, bw, bh, types::c_blue()) is
+        let r = save::load_game(gs)
+        gs = r.0
+        if !r.1 is gs = types::show_msg(gs, "No save file found.") end
+    end
+    if ui::button(fo, "EXIT", bx, sh * 0.42 + 116.0, bw, bh, types::c_text_dim()) is
+        h2d_gfx::request_close()
+    end
+
+    text::draw(fo, "v1.1.0", sw - 60.0, sh - 10.0, 14, types::c_text_dim())
+    if gs.msg != "" is
+        let mw: f64 = text::width(fo, gs.msg, 18)
+        text::draw(fo, gs.msg, sw / 2.0 - mw / 2.0, sh - 40.0, 18, types::c_accent())
+    end
+    return gs
+end
+
+;; ── Series Select ─────────────────────────────────────────────────────────
+
+pub fn draw_series_select(fo: text::Fonts, mut gs: types::AppState) -> types::AppState is
+    h2d_gfx::clear_background(types::c_bg())
+    let sw: f64 = ui::sw()
+    let sh: f64 = ui::sh()
+    ui::label(fo, "SELECT CHAMPIONSHIP", 30.0, 50.0, 28, types::c_text())
+    h2d_gfx::draw_line(30.0, 60.0, sw - 30.0, 60.0, 1.0, types::c_border())
+
+    let names: [string] = ["Formula 1 — 2026 Season", "IndyCar Series", "ABB Formula E", "FIA World Endurance Champ.", "GT3 European Series"]
+    let descs: [string] = [
+        "24 rounds, hybrid power, 2026 tech regs",
+        "17 rounds incl. Indy 500, oval + road",
+        "16 rounds, pure electric, no tyre pits",
+        "8 rounds incl. 24h Le Mans",
+        "12 rounds, production GT cars",
+    ]
+    let mut i: int = 0
+    while i < 5 is
+        let y: f64 = 96.0 + types::i2f(i) * 90.0
+        let col: h2d_color::Color = types::series_color(i)
+        let selected: bool = gs.has_series && gs.selected_series == i
+        if selected is
+            h2d_gfx::draw_rectangle(30.0, y, sw - 60.0, 80.0, types::alpha(col, 0.10))
+            h2d_gfx::draw_rectangle_lines(30.0, y, sw - 60.0, 80.0, 1.5, col)
+        else is
+            h2d_gfx::draw_rectangle(30.0, y, sw - 60.0, 80.0, types::c_panel())
+            h2d_gfx::draw_rectangle_lines(30.0, y, sw - 60.0, 80.0, 1.5, types::c_border())
+        end
+        h2d_gfx::draw_rectangle(30.0, y, 78.0, 80.0, types::alpha(col, 0.15))
+        let short: string = types::series_short(i)
+        let bw: f64 = text::width(fo, short, 18)
+        text::draw(fo, short, 30.0 + (78.0 - bw) / 2.0, y + 48.0, 18, col)
+        text::draw(fo, names[i], 124.0, y + 28.0, 20, types::c_text())
+        text::draw(fo, descs[i], 124.0, y + 52.0, 14, types::c_text_dim())
+        text::draw(fo, to_string(types::series_rounds(i)) + " rounds", sw - 110.0, y + 28.0, 15, types::c_text_dim())
+        if types::pit_stops_required(i) is text::draw(fo, "PIT STOPS", sw - 110.0, y + 48.0, 12, types::c_gold()) end
+        if types::has_endurance(i) is text::draw(fo, "ENDURANCE", sw - 110.0, y + 62.0, 12, types::c_blue()) end
+
+        if ui::hovering(30.0, y, sw - 60.0, 80.0) && ui::mouse_clicked() is
+            gs.has_series = true
+            gs.selected_series = i
+        end
+        i += 1
+    end
+    if gs.has_series is
+        if ui::button(fo, "SELECT & SETUP TEAM  →", sw / 2.0 - 150.0, sh - 68.0, 300.0, 46.0, types::c_accent()) is
+            gs.screen = types::sc_team_setup()
+            gs.setup_step = 0
+            gs.input_buf = ""
+        end
+    end
+    if ui::button(fo, "← BACK", 30.0, sh - 68.0, 120.0, 40.0, types::c_text_dim()) is
+        gs.screen = types::sc_main_menu()
+    end
+    return gs
+end
+
+;; ── Team Setup ────────────────────────────────────────────────────────────
+
+pub fn draw_team_setup(fo: text::Fonts, mut gs: types::AppState) -> types::AppState is
+    h2d_gfx::clear_background(types::c_bg())
+    let sw: f64 = ui::sw()
+    let sh: f64 = ui::sh()
+    h2d_input2d::start_text_input()
+    ui::label(fo, "TEAM SETUP", 30.0, 50.0, 28, types::c_text())
+    h2d_gfx::draw_line(30.0, 60.0, sw - 30.0, 60.0, 1.0, types::c_border())
+
+    let prompts: [string] = ["Team Name:", "Driver 1 Name:", "Driver 2 Name:"]
+    let step: int = gs.setup_step
+
+    let mut i: int = 0
+    while i < 3 is
+        let y: f64 = 130.0 + types::i2f(i) * 90.0
+        let done: bool = i < step
+        let active: bool = i == step
+        let mut val: string = gs.setup_driver2
+        if i == 0 is
+            val = gs.setup_name
+        elsif i == 1 is
+            val = gs.setup_driver1
+        end
+        if active is
+            text::draw(fo, prompts[i], 100.0, y, 20, types::c_text())
+            h2d_gfx::draw_rectangle(100.0, y + 10.0, 400.0, 36.0, types::c_panel2())
+            h2d_gfx::draw_rectangle_lines(100.0, y + 10.0, 400.0, 36.0, 1.5, types::c_accent())
+        else is
+            text::draw(fo, prompts[i], 100.0, y, 20, types::c_text_dim())
+            h2d_gfx::draw_rectangle(100.0, y + 10.0, 400.0, 36.0, types::c_panel())
+            h2d_gfx::draw_rectangle_lines(100.0, y + 10.0, 400.0, 36.0, 1.5, types::c_border())
+        end
+        let mut display: string = val
+        if active is display = gs.input_buf + "|" end
+        if done is
+            text::draw(fo, display, 108.0, y + 33.0, 20, types::c_green())
+        else is
+            text::draw(fo, display, 108.0, y + 33.0, 20, types::c_text())
+        end
+        i += 1
+    end
+
+    if step < 3 is
+        ;; typed characters: printable ASCII only, max 24 (as before)
+        let mut c: int = h2d_input2d::get_char_pressed()
+        while c != 0 is
+            if c >= 33 && c <= 126 || c == 32 is
+                if gs.input_buf.len() < 24 is gs.input_buf = gs.input_buf + conv::int_to_char(c) end
+            end
+            c = h2d_input2d::get_char_pressed()
+        end
+        if h2d_input2d::is_key_pressed(h2d_keys::key_backspace()) && gs.input_buf.len() > 0 is
+            gs.input_buf = str::slice(gs.input_buf, 0, gs.input_buf.len() - 1)
+        end
+        if h2d_input2d::is_key_pressed(h2d_keys::key_enter()) is
+            let val: string = str::trim(gs.input_buf)
+            if val.len() > 0 is
+                if step == 0 is
+                    gs.setup_name = val
+                elsif step == 1 is
+                    gs.setup_driver1 = val
+                else is
+                    gs.setup_driver2 = val
+                end
+                gs.input_buf = ""
+                gs.setup_step += 1
+            end
+        end
+    end
+
+    if gs.setup_step >= 3 is
+        text::draw(fo, "✓ All set! Ready to start season.", 100.0, 400.0, 20, types::c_green())
+        if ui::button(fo, "START SEASON  →", sw / 2.0 - 130.0, sh - 80.0, 260.0, 46.0, types::c_accent()) is
+            let mut series: int = types::s_f1()
+            if gs.has_series is series = gs.selected_series end
+            gs.team = data::new_team(gs.setup_name, gs.setup_driver1, gs.setup_driver2, series)
+            gs.has_team = true
+            gs.opponents = data::generate_opponents(series)
+            gs.screen = types::sc_dashboard()
+            gs.tab = 0
+            h2d_input2d::stop_text_input()
+        end
+    end
+    if ui::button(fo, "← BACK", 30.0, sh - 80.0, 120.0, 40.0, types::c_text_dim()) is
+        gs.screen = types::sc_series_select()
+        h2d_input2d::stop_text_input()
+    end
+    return gs
+end
+
+;; ── Dashboard ─────────────────────────────────────────────────────────────
+
+pub fn draw_dashboard(fo: text::Fonts, mut gs: types::AppState) -> types::AppState is
+    let team: types::Team = gs.team
+    let circuits: [types::Circuit] = gs.circuits
+    let sw: f64 = ui::sw()
+    h2d_gfx::clear_background(types::c_bg())
+    ui::topbar(fo, team, circuits)
+
+    let cy: f64 = 66.0
+    if team.current_round < circuits.len() is
+        let c: types::Circuit = circuits[team.current_round]
+        ui::panel(16.0, cy, sw - 32.0, 106.0, types::c_panel())
+        text::draw(fo, "NEXT RACE", 30.0, cy + 22.0, 13, types::c_text_dim())
+        text::draw(fo, c.name, 30.0, cy + 54.0, 30, types::c_text())
+        text::draw(fo, c.country, 30.0 + text::width(fo, c.name, 30) + 10.0, cy + 54.0, 18, types::c_text_dim())
+        text::draw(fo, to_string(c.laps) + " laps", 30.0, cy + 80.0, 14, types::c_text_dim())
+        let wx: f64 = sw - 200.0
+        let mut wtxt: string = "DRY"
+        let mut wcol: h2d_color::Color = types::c_green()
+        if c.wet_chance > 0.35 is
+            wtxt = "LIKELY RAIN"
+            wcol = types::c_blue()
+        elsif c.wet_chance > 0.15 is
+            wtxt = "POSSIBLE RAIN"
+            wcol = types::c_gold()
+        end
+        text::draw(fo, "WEATHER", wx, cy + 22.0, 13, types::c_text_dim())
+        text::draw(fo, wtxt, wx, cy + 54.0, 20, wcol)
+        text::draw(fo, fmt0(c.wet_chance * 100.0) + "% rain", wx, cy + 78.0, 13, types::c_text_dim())
+        if c.high_speed is text::draw(fo, "HIGH-SPEED CIRCUIT", sw / 2.0 - 80.0, cy + 54.0, 14, types::c_blue()) end
+        if types::pit_stops_required(team.series) is
+            text::draw(fo, "Pit delta: " + fmt0(c.pit_delta) + "s", sw / 2.0 - 60.0, cy + 78.0, 13, types::c_gold())
+        end
+    else is
+        ui::panel(16.0, cy, sw - 32.0, 106.0, types::c_panel())
+        text::draw(fo, "SEASON COMPLETE — Champions crowned!", 30.0, cy + 58.0, 26, types::c_gold())
+    end
+
+    ;; driver cards
+    let dy: f64 = cy + 124.0
+    ui::section_header(fo, "DRIVERS", dy)
+    let mut i: int = 0
+    while i < 2 is
+        let mut driver: types::Driver = team.driver1
+        if i == 1 is driver = team.driver2 end
+        let dx: f64 = 16.0 + types::i2f(i) * (sw / 2.0 - 20.0)
+        let dw: f64 = sw / 2.0 - 24.0
+        ui::panel(dx, dy + 14.0, dw, 140.0, types::c_panel())
+        text::draw(fo, driver.name, dx + 12.0, dy + 40.0, 20, types::c_text())
+        text::draw(fo, "OVR " + to_string(types::driver_overall(driver)), dx + dw - 70.0, dy + 40.0, 19, types::c_accent())
+        text::draw(fo, "Age " + to_string(driver.age) + " • " + driver.nationality + " • " + to_string(driver.career_wins) + " career wins", dx + 12.0, dy + 58.0, 12, types::c_text_dim())
+        ui::stat_bar(fo, "PACE", driver.pace, dx + 12.0, dy + 72.0, dw - 24.0, types::c_accent())
+        ui::stat_bar(fo, "CONSS", driver.consistency, dx + 12.0, dy + 90.0, dw - 24.0, types::c_blue())
+        ui::stat_bar(fo, "WET", driver.wet_skill, dx + 12.0, dy + 108.0, dw - 24.0, types::rgba(0.3, 0.7, 1.0, 1.0))
+        let mut mc: h2d_color::Color = types::c_accent()
+        if driver.morale > 20 is
+            mc = types::c_green()
+        elsif driver.morale > 0 - 20 is
+            mc = types::c_gold()
+        end
+        text::draw(fo, "Morale " + to_string(driver.morale) + " • " + to_string(driver.races) + " races", dx + 12.0, dy + 136.0, 12, mc)
+        i += 1
+    end
+
+    ;; car
+    let cary: f64 = dy + 172.0
+    ui::section_header(fo, "CAR PERFORMANCE", cary)
+    ui::panel(16.0, cary + 14.0, sw - 32.0, 80.0, types::c_panel())
+    let cw: f64 = (sw - 32.0) / 5.0
+    let car: types::Car = team.car
+    let cnames: [string] = ["CHASSIS", "ENGINE", "RELIABILITY", "TIRE DEG", "PIT SPEED"]
+    let cvals: [int] = [car.chassis, car.engine, car.reliability, car.tire_deg, car.pit_speed]
+    let ccols: [h2d_color::Color] = [types::c_accent(), types::c_gold(), types::c_green(), types::c_blue(), types::c_silver()]
+    i = 0
+    while i < 5 is
+        ui::stat_bar(fo, cnames[i], cvals[i], 16.0 + types::i2f(i) * cw + 4.0, cary + 28.0, cw - 8.0, ccols[i])
+        i += 1
+    end
+    text::draw(fo, "Car Overall: " + to_string(types::car_performance(car)) + "  •  Aero Balance: " + to_string(car.aero_balance) + "/100", 30.0, cary + 80.0, 14, types::c_text_dim())
+
+    ;; recent results (last three, newest first)
+    let ry: f64 = cary + 108.0
+    ui::section_header(fo, "RECENT RESULTS", ry)
+    let n: int = team.race_results.len()
+    let mut k: int = 0
+    while k < 3 && k < n is
+        let r: types::RaceResult = team.race_results[n - 1 - k]
+        let rwy: f64 = ry + 20.0 + types::i2f(k) * 42.0
+        ui::panel(16.0, rwy, sw - 32.0, 36.0, types::c_panel())
+        text::draw(fo, "R" + to_string(r.round) + " " + r.circuit, 28.0, rwy + 22.0, 15, types::c_text_dim())
+        ui::position_badge(fo, r.driver1_pos, 200.0, rwy + 7.0)
+        ui::position_badge(fo, r.driver2_pos, 244.0, rwy + 7.0)
+        text::draw(fo, "+" + to_string(r.driver1_points + r.driver2_points) + " pts", 296.0, rwy + 22.0, 15, types::c_gold())
+        if r.wet_race is text::draw(fo, "WET", sw - 80.0, rwy + 22.0, 13, types::c_blue()) end
+        if r.fastest_lap is text::draw(fo, "FL", sw - 48.0, rwy + 22.0, 13, types::rgba(0.6, 0.2, 0.9, 1.0)) end
+        k += 1
+    end
+    return gs
+end
+
+;; ── Roster ────────────────────────────────────────────────────────────────
+
+pub fn draw_roster(fo: text::Fonts, mut gs: types::AppState) -> types::AppState is
+    let team: types::Team = gs.team
+    let sw: f64 = ui::sw()
+    let nocirc: [types::Circuit] = []
+    h2d_gfx::clear_background(types::c_bg())
+    ui::topbar(fo, team, nocirc)
+    ui::label(fo, "DRIVER ROSTER", 30.0, 80.0, 24, types::c_text())
+    h2d_gfx::draw_line(30.0, 90.0, sw - 30.0, 90.0, 1.0, types::c_border())
+
+    let mut i: int = 0
+    while i < 2 is
+        let mut driver: types::Driver = team.driver1
+        if i == 1 is driver = team.driver2 end
+        let dy: f64 = 110.0 + types::i2f(i) * 245.0
+        ui::panel(16.0, dy, sw - 32.0, 230.0, types::c_panel())
+        text::draw(fo, "DRIVER " + to_string(i + 1), 30.0, dy + 22.0, 13, types::c_text_dim())
+        text::draw(fo, driver.name, 30.0, dy + 52.0, 26, types::c_text())
+        text::draw(fo, driver.nationality + " • Age " + to_string(driver.age) + " • " + to_string(driver.career_wins) + " career wins • " + to_string(driver.races) + " races", 30.0, dy + 74.0, 13, types::c_text_dim())
+
+        let hw: f64 = (sw - 64.0) / 2.0
+        ui::stat_bar(fo, "PACE", driver.pace, 30.0, dy + 92.0, hw, types::c_accent())
+        ui::stat_bar(fo, "CONSISTENCY", driver.consistency, 30.0, dy + 112.0, hw, types::c_blue())
+        ui::stat_bar(fo, "WET SKILL", driver.wet_skill, 30.0, dy + 132.0, hw, types::rgba(0.3, 0.7, 1.0, 1.0))
+        ui::stat_bar(fo, "TIRE MGMT", driver.tire_mgmt, sw / 2.0, dy + 92.0, hw, types::c_gold())
+        ui::stat_bar(fo, "EXPERIENCE", driver.experience, sw / 2.0, dy + 112.0, hw, types::c_green())
+
+        text::draw(fo, "Overall: " + to_string(types::driver_overall(driver)), 30.0, dy + 162.0, 18, types::c_accent())
+        text::draw(fo, "Salary: $" + types::fmt1(types::i2f(driver.salary) / 1000.0) + "M/season", 200.0, dy + 162.0, 14, types::c_text_dim())
+        text::draw(fo, "Contract: " + to_string(driver.contract_years) + " year(s)", 400.0, dy + 162.0, 14, types::c_text_dim())
+        let mut mc: h2d_color::Color = types::c_accent()
+        if driver.morale > 20 is
+            mc = types::c_green()
+        elsif driver.morale > 0 - 20 is
+            mc = types::c_gold()
+        end
+        text::draw(fo, "Morale: " + to_string(driver.morale), 30.0, dy + 188.0, 14, mc)
+        text::draw(fo, "Tire Mgmt: " + to_string(driver.tire_mgmt), 180.0, dy + 188.0, 14, types::c_text_dim())
+        i += 1
+    end
+    return gs
+end
+
+;; ── Car Dev ───────────────────────────────────────────────────────────────
+
+pub fn draw_car_dev(fo: text::Fonts, mut gs: types::AppState) -> types::AppState is
+    let sw: f64 = ui::sw()
+    let nocirc: [types::Circuit] = []
+    h2d_gfx::clear_background(types::c_bg())
+    ui::topbar(fo, gs.team, nocirc)
+    ui::label(fo, "CAR DEVELOPMENT", 30.0, 80.0, 24, types::c_text())
+    h2d_gfx::draw_line(30.0, 90.0, sw - 30.0, 90.0, 1.0, types::c_border())
+
+    let car: types::Car = gs.team.car
+    let y0: f64 = 106.0
+    let cnames: [string] = ["CHASSIS", "ENGINE", "RELIABILITY", "TIRE DEG", "PIT SPEED"]
+    let cvals: [int] = [car.chassis, car.engine, car.reliability, car.tire_deg, car.pit_speed]
+    let ccols: [h2d_color::Color] = [types::c_accent(), types::c_gold(), types::c_green(), types::c_blue(), types::c_silver()]
+    let mut i: int = 0
+    while i < 5 is
+        ui::stat_bar(fo, cnames[i], cvals[i], 30.0, y0 + types::i2f(i) * 26.0, sw - 60.0, ccols[i])
+        i += 1
+    end
+    text::draw(fo, "Aero Balance: " + to_string(car.aero_balance) + "/100  (0=understeer, 100=oversteer)", 30.0, y0 + 140.0, 14, types::c_text_dim())
+
+    ui::section_header(fo, "START R&D PROJECT", y0 + 162.0)
+
+    let pnames: [string]   = ["Aero Package", "Engine Tokens", "Reliability Fix", "Tire Compounds", "Pitstop Equipment", "Floor Revision", "ERS Upgrade", "Aero Balance Shift"]
+    let ptargets: [string] = ["chassis", "engine", "reliability", "tire_deg", "pit_speed", "chassis", "engine", "aero_balance"]
+    let pdescs: [string]   = ["Improved downforce", "Power unit upgrade", "Reduce DNF risk", "Softer deg curves", "Faster wheel guns", "Underfloor ground effect", "Harvest/deploy efficiency", "Tune high/low speed bias"]
+    let pcosts: [int]      = [3500, 5000, 2000, 2500, 1500, 4000, 4500, 2000]
+    let pdurs: [int]       = [3, 4, 2, 3, 2, 3, 3, 2]
+    let pboosts: [int]     = [5, 7, 4, 4, 3, 6, 5, 5]
+
+    i = 0
+    while i < pnames.len() is
+        let py: f64 = y0 + 178.0 + types::i2f(i) * 52.0
+        let mut already: bool = false
+        let mut left: int = 0
+        let mut k: int = 0
+        while k < gs.team.rd_projects.len() is
+            if !already && gs.team.rd_projects[k].name == pnames[i] is
+                already = true
+                left = gs.team.rd_projects[k].duration
+            end
+            k += 1
+        end
+        let can_afford: bool = gs.team.budget >= pcosts[i]
+
+        ui::panel(16.0, py, sw - 32.0, 46.0, types::c_panel())
+        text::draw(fo, pnames[i], 30.0, py + 18.0, 16, types::c_text())
+        text::draw(fo, pdescs[i], 30.0, py + 36.0, 12, types::c_text_dim())
+        let mut stat_col: h2d_color::Color = types::c_accent()
+        if already is
+            stat_col = types::c_text_dim()
+        elsif can_afford is
+            stat_col = types::c_green()
+        end
+        text::draw(fo, "→ " + ptargets[i] + " +" + to_string(pboosts[i]), 320.0, py + 18.0, 14, stat_col)
+        text::draw(fo, to_string(pdurs[i]) + " races", 460.0, py + 18.0, 14, types::c_text_dim())
+        let mut cost_col: h2d_color::Color = types::c_accent()
+        if can_afford is cost_col = types::c_green() end
+        text::draw(fo, "$" + types::fmt1(types::i2f(pcosts[i]) / 1000.0) + "M", 540.0, py + 18.0, 14, cost_col)
+
+        if !already is
+            let mut bcol: h2d_color::Color = types::c_text_dim()
+            if can_afford is bcol = types::c_green() end
+            if ui::icon_button(fo, "START", sw - 100.0, py + 8.0, 80.0, 28.0, bcol, can_afford) is
+                gs.team.budget -= pcosts[i]
+                gs.team.rd_projects.push(types::RdProject { name: pnames[i], target: ptargets[i], cost: pcosts[i], duration: pdurs[i], boost: pboosts[i] })
+            end
+        else is
+            text::draw(fo, to_string(left) + " races left", sw - 120.0, py + 22.0, 13, types::c_gold())
+        end
+        i += 1
+    end
+    return gs
+end
+
+;; ── Standings ─────────────────────────────────────────────────────────────
+
+pub fn draw_standings(fo: text::Fonts, mut gs: types::AppState) -> types::AppState is
+    let team: types::Team = gs.team
+    let sw: f64 = ui::sw()
+    h2d_gfx::clear_background(types::c_bg())
+    ui::topbar(fo, team, gs.circuits)
+    ui::label(fo, "CONSTRUCTORS STANDINGS", 30.0, 80.0, 24, types::c_text())
+    h2d_gfx::draw_line(30.0, 90.0, sw - 30.0, 90.0, 1.0, types::c_border())
+
+    let mut names: [string] = [team.name]
+    let mut pts: [int] = [team.standings_points]
+    let mut cols: [h2d_color::Color] = [types::c_accent()]
+    let mut k: int = 0
+    while k < gs.opponents.len() is
+        names.push(gs.opponents[k].name)
+        pts.push(gs.opponents[k].points)
+        cols.push(types::opp_color(gs.opponents[k]))
+        k += 1
+    end
+    ;; stable sort, most points first
+    let mut a: int = 1
+    while a < pts.len() is
+        let sn: string = names[a]
+        let sp: int = pts[a]
+        let sc: h2d_color::Color = cols[a]
+        let mut b: int = a - 1
+        while b >= 0 && pts[b] < sp is
+            names[b + 1] = names[b]
+            pts[b + 1] = pts[b]
+            cols[b + 1] = cols[b]
+            b -= 1
+        end
+        names[b + 1] = sn
+        pts[b + 1] = sp
+        cols[b + 1] = sc
+        a += 1
+    end
+
+    let max_pts: int = types::imax(pts[0], 1)
+    let mut i: int = 0
+    while i < names.len() is
+        let y: f64 = 106.0 + types::i2f(i) * 44.0
+        let is_player: bool = names[i] == team.name
+        let col: h2d_color::Color = cols[i]
+        if is_player is
+            h2d_gfx::draw_rectangle(16.0, y, sw - 32.0, 38.0, types::alpha(col, 0.08))
+            h2d_gfx::draw_rectangle_lines(16.0, y, sw - 32.0, 38.0, 1.0, col)
+        else is
+            h2d_gfx::draw_rectangle(16.0, y, sw - 32.0, 38.0, types::c_panel())
+            h2d_gfx::draw_rectangle_lines(16.0, y, sw - 32.0, 38.0, 1.0, types::c_border())
+        end
+
+        let mut pos_col: h2d_color::Color = types::c_text_dim()
+        if i == 0 is
+            pos_col = types::c_gold()
+        elsif i == 1 is
+            pos_col = types::c_silver()
+        elsif i == 2 is
+            pos_col = types::c_bronze()
+        end
+        text::draw(fo, to_string(i + 1), 28.0, y + 25.0, 18, pos_col)
+        h2d_gfx::draw_rectangle(52.0, y + 6.0, 4.0, 26.0, col)
+        if is_player is
+            text::draw(fo, names[i], 64.0, y + 25.0, 17, types::c_text())
+            text::draw(fo, "◄ YOU", 64.0 + text::width(fo, names[i], 17) + 8.0, y + 25.0, 12, col)
+        else is
+            text::draw(fo, names[i], 64.0, y + 25.0, 17, types::c_text_dim())
+        end
+
+        let bar_w: f64 = (sw - 310.0) * (types::i2f(pts[i]) / types::i2f(max_pts))
+        h2d_gfx::draw_rectangle(200.0, y + 10.0, bar_w, 18.0, types::alpha(col, 0.3))
+        if is_player is
+            text::draw(fo, to_string(pts[i]) + " pts", sw - 90.0, y + 25.0, 17, types::c_gold())
+        else is
+            text::draw(fo, to_string(pts[i]) + " pts", sw - 90.0, y + 25.0, 17, types::c_text_dim())
+        end
+        i += 1
+    end
+    return gs
+end
+
+;; ── Contract Market ───────────────────────────────────────────────────────
+;; The Rust version called free_agents() every frame, so ages and ratings
+;; re-rolled 60 times a second. The list is now rolled once per visit.
+
+pub fn draw_contract_market(fo: text::Fonts, mut gs: types::AppState) -> types::AppState is
+    let sw: f64 = ui::sw()
+    let sh: f64 = ui::sh()
+    let nocirc: [types::Circuit] = []
+    if gs.agents.len() == 0 is gs.agents = data::free_agents() end
+    h2d_gfx::clear_background(types::c_bg())
+    if gs.has_team is ui::topbar(fo, gs.team, nocirc) end
+    ui::label(fo, "CONTRACT MARKET", 30.0, 80.0, 24, types::c_text())
+    h2d_gfx::draw_line(30.0, 90.0, sw - 30.0, 90.0, 1.0, types::c_border())
+    text::draw(fo, "Sign a free agent to replace your current drivers.", 30.0, 112.0, 14, types::c_text_dim())
+
+    if gs.contract_msg != "" is
+        let mw: f64 = text::width(fo, gs.contract_msg, 18)
+        text::draw(fo, gs.contract_msg, sw / 2.0 - mw / 2.0, 134.0, 18, types::c_green())
+    end
+
+    let mut i: int = 0
+    while i < gs.agents.len() is
+        let agent: types::Driver = gs.agents[i]
+        let y: f64 = 150.0 + types::i2f(i) * 58.0
+        ui::panel(16.0, y, sw - 32.0, 52.0, types::c_panel())
+        text::draw(fo, agent.name, 30.0, y + 20.0, 16, types::c_text())
+        text::draw(fo, agent.nationality + " • Age " + to_string(agent.age) + " • OVR " + to_string(types::driver_overall(agent)), 30.0, y + 38.0, 13, types::c_text_dim())
+        ui::stat_bar(fo, "PACE", agent.pace, 220.0, y + 14.0, 280.0, types::c_accent())
+        text::draw(fo, "$" + types::fmt1(types::i2f(agent.salary) / 1000.0) + "M/yr", sw - 200.0, y + 22.0, 14, types::c_green())
+
+        let can_afford: bool = gs.team.budget >= agent.salary
+        if ui::icon_button(fo, "SIGN D1", sw - 160.0, y + 8.0, 70.0, 26.0, types::c_blue(), can_afford) is
+            gs.team.budget -= agent.salary
+            gs.team.driver1 = agent
+            gs.contract_msg = "✓ " + agent.name + " signed as Driver 1!"
+        end
+        if ui::icon_button(fo, "SIGN D2", sw - 84.0, y + 8.0, 70.0, 26.0, types::c_gold(), can_afford) is
+            gs.team.budget -= agent.salary
+            gs.team.driver2 = agent
+            gs.contract_msg = "✓ " + agent.name + " signed as Driver 2!"
+        end
+        i += 1
+    end
+    if ui::button(fo, "← BACK", 30.0, sh - 60.0, 120.0, 40.0, types::c_text_dim()) is
+        gs.screen = types::sc_dashboard()
+        gs.tab = 0
+        gs.contract_msg = ""
+        gs.agents = []
+    end
+    return gs
+end
+
+;; ── Race Weekend ──────────────────────────────────────────────────────────
+
+pub fn draw_race_weekend(fo: text::Fonts, mut gs: types::AppState) -> types::AppState is
+    let team: types::Team = gs.team
+    let circuits: [types::Circuit] = gs.circuits
+    let sw: f64 = ui::sw()
+    let sh: f64 = ui::sh()
+    let circuit: types::Circuit = circuits[types::imin(team.current_round, circuits.len() - 1)]
+    h2d_gfx::clear_background(types::c_bg())
+    ui::topbar(fo, team, circuits)
+    ui::label(fo, "RACE WEEKEND — " + circuit.name, 30.0, 80.0, 24, types::c_text())
+    h2d_gfx::draw_line(30.0, 90.0, sw - 30.0, 90.0, 1.0, types::c_border())
+
+    text::draw(fo, "CONDITIONS:", 30.0, 114.0, 14, types::c_text_dim())
+    if gs.race_state.wet is
+        text::draw(fo, "WET RACE", 130.0, 114.0, 16, types::c_blue())
+    else is
+        text::draw(fo, "DRY RACE", 130.0, 114.0, 16, types::c_green())
+    end
+
+    ;; practice
+    ui::panel(16.0, 128.0, sw - 32.0, 72.0, types::c_panel())
+    text::draw(fo, "PRACTICE SESSION", 30.0, 148.0, 16, types::c_text())
+    if !gs.race_state.practice_done is
+        text::draw(fo, "Run practice to gather tyre data and baseline lap times.", 30.0, 170.0, 13, types::c_text_dim())
+        if ui::button(fo, "RUN PRACTICE", sw - 198.0, 138.0, 170.0, 32.0, types::c_blue()) is
+            gs.race_state.practice_done = true
+            gs.race_state.wet = types::rf(0.0, 1.0) < circuit.wet_chance
+        end
+    else is
+        text::draw(fo, "✓ Practice complete", 30.0, 170.0, 14, types::c_green())
+        if gs.race_state.wet is
+            text::draw(fo, "Conditions: WET", 220.0, 170.0, 14, types::c_blue())
+        else is
+            text::draw(fo, "Conditions: DRY", 220.0, 170.0, 14, types::c_text_dim())
+        end
+    end
+
+    ;; qualifying
+    ui::panel(16.0, 212.0, sw - 32.0, 72.0, types::c_panel())
+    text::draw(fo, "QUALIFYING", 30.0, 232.0, 16, types::c_text())
+    if !gs.race_state.qualifying_done is
+        let avail: bool = gs.race_state.practice_done
+        if avail is
+            text::draw(fo, "Set your fastest lap to determine grid position.", 30.0, 252.0, 13, types::c_text_dim())
+        else is
+            text::draw(fo, "Complete practice first.", 30.0, 252.0, 13, types::c_text_dim())
+        end
+        if ui::icon_button(fo, "RUN QUALIFYING", sw - 198.0, 222.0, 170.0, 32.0, types::c_gold(), avail) is
+            gs.race_state.qualifying_done = true
+            let perf: f64 = types::i2f(types::car_performance(team.car))
+            let q1: int = types::f2i(types::i2f(team.driver1.pace) + types::rf(0.0 - 8.0, 8.0) + perf * 0.3)
+            let q2: int = types::f2i(types::i2f(team.driver2.pace) + types::rf(0.0 - 8.0, 8.0) + perf * 0.3)
+            gs.race_state.qualifying_pos1 = types::imax(20 - types::iclamp(q1 - 30, 0, 19), 1)
+            gs.race_state.qualifying_pos2 = types::imax(20 - types::iclamp(q2 - 28, 0, 19), 1)
+        end
+    else is
+        text::draw(fo, "P" + to_string(gs.race_state.qualifying_pos1) + " — " + team.driver1.name, 30.0, 248.0, 14, types::c_text())
+        text::draw(fo, "P" + to_string(gs.race_state.qualifying_pos2) + " — " + team.driver2.name, 30.0, 266.0, 14, types::c_text())
+    end
+
+    ;; strategy (pit-stop series only)
+    if gs.race_state.qualifying_done && types::pit_stops_required(team.series) is
+        ui::panel(16.0, 296.0, sw - 32.0, 132.0, types::c_panel())
+        text::draw(fo, "PIT STRATEGY", 30.0, 316.0, 16, types::c_text())
+
+        let mut compounds: [int] = [types::t_soft(), types::t_medium(), types::t_hard()]
+        if gs.race_state.wet is compounds = [types::t_inter(), types::t_wet()] end
+
+        let mut driver_idx: int = 0
+        while driver_idx < 2 is
+            let mut y_off: f64 = 330.0
+            let mut driver_name: string = team.driver1.name
+            if driver_idx == 1 is
+                y_off = 388.0
+                driver_name = team.driver2.name
+            end
+            text::draw(fo, driver_name + ":", 30.0, y_off - 2.0, 13, types::c_text_dim())
+            let mut cx: f64 = 160.0
+            let mut ci: int = 0
+            while ci < compounds.len() is
+                let c: int = compounds[ci]
+                let mut selected: bool = gs.race_state.strategy2 == c
+                if driver_idx == 0 is selected = gs.race_state.strategy1 == c end
+                let col: h2d_color::Color = types::tire_color(c)
+                if selected is
+                    h2d_gfx::draw_rectangle(cx, y_off - 14.0, 60.0, 22.0, types::alpha(col, 0.3))
+                    h2d_gfx::draw_rectangle_lines(cx, y_off - 14.0, 60.0, 22.0, 1.0, col)
+                else is
+                    h2d_gfx::draw_rectangle(cx, y_off - 14.0, 60.0, 22.0, types::c_panel2())
+                    h2d_gfx::draw_rectangle_lines(cx, y_off - 14.0, 60.0, 22.0, 1.0, types::c_border())
+                end
+                let nm: string = types::tire_name(c)
+                let tw: f64 = text::width(fo, nm, 12)
+                text::draw(fo, nm, cx + (60.0 - tw) / 2.0, y_off + 4.0, 12, col)
+                if ui::hovering(cx, y_off - 14.0, 60.0, 22.0) && ui::mouse_clicked() is
+                    if driver_idx == 0 is
+                        gs.race_state.strategy1 = c
+                    else is
+                        gs.race_state.strategy2 = c
+                    end
+                end
+                cx += 66.0
+                ci += 1
+            end
+            ;; pit lap
+            let mut lap_val: int = gs.race_state.pit_lap2
+            if driver_idx == 0 is lap_val = gs.race_state.pit_lap1 end
+            text::draw(fo, "Pit lap:", 30.0, y_off + 26.0, 13, types::c_text_dim())
+            text::draw(fo, "Lap " + to_string(lap_val), 100.0, y_off + 26.0, 14, types::c_gold())
+            if ui::button(fo, "-", 152.0, y_off + 12.0, 24.0, 20.0, types::c_text_dim()) is
+                if driver_idx == 0 && gs.race_state.pit_lap1 > 5 is
+                    gs.race_state.pit_lap1 -= 1
+                elsif driver_idx == 1 && gs.race_state.pit_lap2 > 5 is
+                    gs.race_state.pit_lap2 -= 1
+                end
+            end
+            if ui::button(fo, "+", 180.0, y_off + 12.0, 24.0, 20.0, types::c_text_dim()) is
+                let max_lap: int = types::imax(circuit.laps - 5, 0)
+                if driver_idx == 0 && gs.race_state.pit_lap1 < max_lap is
+                    gs.race_state.pit_lap1 += 1
+                elsif driver_idx == 1 && gs.race_state.pit_lap2 < max_lap is
+                    gs.race_state.pit_lap2 += 1
+                end
+            end
+            driver_idx += 1
+        end
+    end
+
+    let mut ry: f64 = 460.0
+    if types::pit_stops_required(team.series) is ry = sh - 70.0 end
+    if gs.race_state.qualifying_done is
+        if ui::button(fo, "⚑  START RACE", sw / 2.0 - 140.0, ry, 280.0, 50.0, types::c_accent()) is
+            gs.screen = types::sc_race_sim()
+            gs.race_state.sim_progress = 0.0
+            gs.race_state.sim_done = false
+            gs.race_state.log = []
+        end
+    else is
+        text::draw(fo, "Complete qualifying to unlock race start.", sw / 2.0 - 180.0, ry + 20.0, 14, types::c_text_dim())
+    end
+    return gs
+end
+
+;; ── Race Simulation ───────────────────────────────────────────────────────
+
+fn starts_with(s: string, prefix: string) -> bool is
+    return s.len() >= prefix.len() && str::slice(s, 0, prefix.len()) == prefix
+end
+
+pub fn draw_race_simulation(fo: text::Fonts, mut gs: types::AppState) -> types::AppState is
+    let sw: f64 = ui::sw()
+    let sh: f64 = ui::sh()
+    let circuits: [types::Circuit] = gs.circuits
+    h2d_gfx::clear_background(types::c_bg())
+    text::draw(fo, "RACE IN PROGRESS", 30.0, 50.0, 26, types::c_accent())
+    h2d_gfx::draw_line(30.0, 62.0, sw - 30.0, 62.0, 1.0, types::c_border())
+
+    let cc: types::Circuit = circuits[types::imin(gs.team.current_round, circuits.len() - 1)]
+    let circuit_name: string = cc.name
+    let total_laps: f64 = types::i2f(cc.laps)
+    text::draw(fo, circuit_name, 30.0, 88.0, 18, types::c_text_dim())
+
+    h2d_gfx::draw_rectangle(30.0, 106.0, sw - 60.0, 16.0, types::c_panel2())
+    h2d_gfx::draw_rectangle(30.0, 106.0, (sw - 60.0) * gs.race_state.sim_progress, 16.0, types::c_accent())
+    h2d_gfx::draw_rectangle_lines(30.0, 106.0, sw - 60.0, 16.0, 1.0, types::c_border())
+    text::draw(fo, to_string(types::f2i(gs.race_state.sim_progress * 100.0 + 0.5)) + "%", sw / 2.0 - 16.0, 120.0, 13, types::c_text())
+
+    if !gs.race_state.sim_done is
+        gs.race_state.sim_progress += h2d_gfx::get_frame_time() * 0.45
+        if gs.race_state.sim_progress >= 1.0 is
+            gs.race_state.sim_progress = 1.0
+            gs.race_state.sim_done = true
+            let out: simulation::SimOut = simulation::simulate_race(gs.team, gs.opponents, gs.race_state, circuits)
+            gs.team = out.team
+            gs.opponents = out.opponents
+            let result: types::RaceResult = out.result
+            let team: types::Team = gs.team
+            gs.race_state.log.push("RACE OVER — " + circuit_name)
+            gs.race_state.log.push(team.driver1.name + " finished P" + to_string(result.driver1_pos) + " (+" + to_string(result.driver1_points) + " pts)")
+            gs.race_state.log.push(team.driver2.name + " finished P" + to_string(result.driver2_pos) + " (+" + to_string(result.driver2_points) + " pts)")
+            let mut p: int = 0
+            while p < result.pit_stops.len() is
+                gs.race_state.log.push(result.pit_stops[p])
+                p += 1
+            end
+            if result.dnf_driver != 0 is
+                let mut n: string = team.driver2.name
+                if result.dnf_driver == 1 is n = team.driver1.name end
+                gs.race_state.log.push("⚠ DNF — " + n + " retired")
+            end
+            if result.fastest_lap is gs.race_state.log.push("★ Fastest lap bonus point") end
+            gs.race_state.result = result
+            gs.race_state.has_result = true
+            gs.team.race_results.push(result)
+            save::save_game(gs)
+        end
+
+        let cur_lap: int = types::f2i(gs.race_state.sim_progress * total_laps)
+        text::draw(fo, "LAP " + to_string(cur_lap) + " / " + to_string(types::f2i(total_laps)), sw / 2.0 - 40.0, 156.0, 20, types::c_gold())
+        if cur_lap == gs.race_state.pit_lap1 is text::draw(fo, "⬛ DRIVER 1 IN THE PITS", 30.0, 184.0, 16, types::c_gold()) end
+        if cur_lap == gs.race_state.pit_lap2 is text::draw(fo, "⬛ DRIVER 2 IN THE PITS", 30.0, 206.0, 16, types::c_gold()) end
+    else is
+        let mut i: int = 0
+        while i < gs.race_state.log.len() is
+            let line: string = gs.race_state.log[i]
+            let mut col: h2d_color::Color = types::c_text()
+            if i == 0 is
+                col = types::c_gold()
+            elsif starts_with(line, "⚠") is
+                col = types::c_accent()
+            elsif starts_with(line, "★") is
+                col = types::rgba(0.7, 0.3, 0.9, 1.0)
+            end
+            text::draw(fo, line, 30.0, 156.0 + types::i2f(i) * 28.0, 17, col)
+            i += 1
+        end
+        if ui::button(fo, "VIEW RESULTS  →", sw / 2.0 - 130.0, sh - 80.0, 260.0, 50.0, types::c_accent()) is
+            gs.screen = types::sc_results()
+        end
+    end
+    return gs
+end
+
+;; ── Results ───────────────────────────────────────────────────────────────
+
+pub fn draw_results(fo: text::Fonts, mut gs: types::AppState) -> types::AppState is
+    let sw: f64 = ui::sw()
+    let sh: f64 = ui::sh()
+    let circuits: [types::Circuit] = gs.circuits
+    let team: types::Team = gs.team
+    h2d_gfx::clear_background(types::c_bg())
+
+    if gs.race_state.has_result is
+        let r: types::RaceResult = gs.race_state.result
+        text::draw(fo, "RACE RESULTS — " + r.circuit, 30.0, 50.0, 24, types::c_text())
+        h2d_gfx::draw_line(30.0, 62.0, sw - 30.0, 62.0, 1.0, types::c_border())
+
+        let mut i: int = 0
+        while i < 2 is
+            let mut pos: int = r.driver2_pos
+            let mut pts: int = r.driver2_points
+            let mut name: string = team.driver2.name
+            if i == 0 is
+                pos = r.driver1_pos
+                pts = r.driver1_points
+                name = team.driver1.name
+            end
+            let dy: f64 = 78.0 + types::i2f(i) * 86.0
+            ui::panel(16.0, dy, sw - 32.0, 76.0, types::c_panel())
+            ui::position_badge(fo, pos, 26.0, dy + 26.0)
+            text::draw(fo, name, 76.0, dy + 30.0, 20, types::c_text())
+            text::draw(fo, "+" + to_string(pts) + " pts", 76.0, dy + 54.0, 16, types::c_gold())
+            if r.wet_race is ui::tire_badge(fo, types::t_wet(), 300.0, dy + 28.0) end
+            if r.dnf_driver == i + 1 is text::draw(fo, "DNF", sw - 80.0, dy + 42.0, 20, types::c_accent()) end
+            i += 1
+        end
+
+        let py: f64 = 260.0
+        ui::section_header(fo, "PIT STOPS", py)
+        i = 0
+        while i < r.pit_stops.len() is
+            text::draw(fo, r.pit_stops[i], 30.0, py + 22.0 + types::i2f(i) * 20.0, 14, types::c_text_dim())
+            i += 1
+        end
+
+        let sy: f64 = 350.0
+        ui::section_header(fo, "TEAM SUMMARY", sy)
+        ui::panel(16.0, sy + 14.0, sw - 32.0, 88.0, types::c_panel())
+        text::draw(fo, "Total Points: " + to_string(team.standings_points), 30.0, sy + 38.0, 18, types::c_gold())
+        text::draw(fo, "Budget: $" + types::fmt1(types::i2f(team.budget) / 1000.0) + "M", 30.0, sy + 62.0, 16, types::c_green())
+        text::draw(fo, "Round: " + to_string(team.current_round) + "/" + to_string(circuits.len()), 300.0, sy + 38.0, 16, types::c_text_dim())
+    end
+
+    let at_end: bool = team.current_round >= circuits.len()
+    let mut btn_label: string = "NEXT ROUND  →"
+    if at_end is btn_label = "SEASON OVER — MENU" end
+    if ui::button(fo, btn_label, sw / 2.0 - 140.0, sh - 70.0, 280.0, 50.0, types::c_accent()) is
+        if at_end is
+            gs.screen = types::sc_main_menu()
+            gs.has_team = false
+        else is
+            gs.race_state = types::new_race_state()
+            gs.screen = types::sc_dashboard()
+            gs.tab = 0
+        end
+    end
+    return gs
+end
