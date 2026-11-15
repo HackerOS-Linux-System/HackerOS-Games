@@ -1,0 +1,298 @@
+use "std -> math" from "m"
+use "bit -> h2d"
+
+mod types
+mod util
+
+;; Bit Jump — player.h#  (port of src/player.lua)
+;; Edge detection of the jump / hack keys (jumpKeyWasDown) is h2d's is_key_pressed.
+
+;; resetPlayer(): shape and auto_speed are kept (they come from the settings)
+pub fn reset_player(mut g: types::Game) -> types::Game is
+    g.player.x = 50.0
+    g.player.y = 500.0
+    g.player.velocity_y = 0.0
+    g.player.is_jumping = false
+    g.player.double_jump = false
+    g.player.invincible = false
+    g.player.invincible_timer = 0.0
+    g.player.hack_timer = 0.0
+    g.player.speed_boost_timer = 0.0
+    g.player.shield = false
+    g.player.particles = []
+    g.player.hit_flash_timer = 0.0
+    return g
+end
+
+pub fn lose_life(mut g: types::Game) -> types::Game is
+    if !g.infinite_lives is g.lives -= 1 end
+    if g.lives <= 0 is
+        g.game_over = true
+    else is
+        g = reset_player(g)
+        g.player.x = 50.0
+        g.player.y = 500.0
+        g.camera_x = 0.0
+    end
+    return g
+end
+
+pub fn damage_player(mut g: types::Game) -> types::Game is
+    if g.player.shield is
+        g.player.shield = false
+        g = util::create_particles(g, g.player.x + g.player.width / 2.0, g.player.y + g.player.height / 2.0, 20, 1.0, 1.0, 1.0)
+        g = util::trigger_screen_shake(g, 4.0, 0.15)
+    else is
+        g = util::trigger_screen_shake(g, 8.0, 0.25)
+        g.player.hit_flash_timer = 0.3
+        g = lose_life(g)
+    end
+    return g
+end
+
+fn key_down(g: types::Game, idx: int) -> bool is
+    return h2d_input2d::is_key_down(g.settings.keys[idx])
+end
+
+fn key_pressed(g: types::Game, idx: int) -> bool is
+    return h2d_input2d::is_key_pressed(g.settings.keys[idx])
+end
+
+pub fn update_player(mut g: types::Game, dt: f64) -> types::Game is
+    if g.player.hack_timer > 0.0 is g.player.hack_timer -= dt end
+    if g.player.invincible_timer > 0.0 is g.player.invincible_timer -= dt end
+    if g.player.speed_boost_timer > 0.0 is g.player.speed_boost_timer -= dt end
+    if g.player.hit_flash_timer > 0.0 is g.player.hit_flash_timer -= dt end
+
+    ;; automatic run, Geometry-Dash style
+    let mut endless_boost: f64 = 0.0
+    if g.game_mode == types::gm_endless() is endless_boost = g.time_elapsed * 0.1 end
+    let mut current_speed: f64 = g.player.auto_speed + endless_boost
+    if g.player.speed_boost_timer > 0.0 is current_speed = g.player.auto_speed * 1.5 + endless_boost end
+    g.player.x += current_speed * dt
+
+    ;; keys: bindings are 0 jump, 1 hack, 2 left, 3 right
+    if key_down(g, 3) is g.player.x += g.player.speed * dt end
+    if key_down(g, 2) is
+        g.player.x -= (g.player.speed / 2.0) * dt
+        if g.player.x < g.camera_x is g.player.x = g.camera_x end
+    end
+
+    ;; jump / double jump (only on the key's rising edge)
+    if key_pressed(g, 0) is
+        if !g.player.is_jumping is
+            g.player.velocity_y = g.player.jump_power
+            g.player.is_jumping = true
+            g = util::create_particles(g, g.player.x + g.player.width / 2.0, g.player.y + g.player.height, 10, 0.0, 1.0, 0.0)
+        elsif g.player.double_jump is
+            g.player.velocity_y = g.player.jump_power * 0.8
+            g.player.double_jump = false
+            g = util::create_particles(g, g.player.x + g.player.width / 2.0, g.player.y + g.player.height, 15, 0.0, 1.0, 0.5)
+        end
+    end
+
+    ;; hacking (disables nearby enemies for a moment)
+    if key_pressed(g, 1) && g.player.hack_timer <= 0.0 is
+        g.player.hack_timer = 10.0
+        let mut i: int = 0
+        while i < g.enemies.len() is
+            if types::fabs(g.enemies[i].x - g.player.x) < 300.0 && g.enemies[i].kind != types::en_boss() is
+                g.enemies[i].disabled = true
+                g.enemies[i].disabled_timer = 4.0
+            end
+            i += 1
+        end
+        g = util::create_particles(g, g.player.x + g.player.width / 2.0, g.player.y + g.player.height / 2.0, 20, 0.0, 1.0, 1.0)
+        g = util::unlock_achievement(g, types::ach_hacker())
+    end
+
+    ;; gravity
+    g.player.velocity_y += g.gravity * dt
+    g.player.y += g.player.velocity_y * dt
+
+    ;; platforms
+    let mut on_ground: bool = false
+    let mut i: int = 0
+    while i < g.platforms.len() is
+        let p: types::Platform = g.platforms[i]
+        if util::rect_hit(g.player.x, g.player.y, g.player.width, g.player.height, p.x, p.y, p.width, p.height) is
+            if g.player.velocity_y > 0.0 && (g.player.y + g.player.height - g.player.velocity_y * dt) <= p.y + 1.0 is
+                g.player.y = p.y - g.player.height
+                g.player.velocity_y = 0.0
+                g.player.is_jumping = false
+                g.player.double_jump = true
+                on_ground = true
+            end
+        end
+        i += 1
+    end
+    if !on_ground is g.player.is_jumping = true end
+
+    ;; spikes, enemies, bosses
+    if !g.player.invincible is
+        i = 0
+        let mut hit: bool = false
+        while i < g.spikes.len() && !hit is
+            let s: types::Spike = g.spikes[i]
+            if util::rect_hit(g.player.x, g.player.y, g.player.width, g.player.height, s.x, s.y, s.width, s.height) is
+                g = damage_player(g)
+                hit = true
+            end
+            i += 1
+        end
+
+        i = 0
+        hit = false
+        while i < g.enemies.len() && !hit is
+            let e: types::Enemy = g.enemies[i]
+            if !e.disabled && e.kind != types::en_boss() && util::rect_circle_hit(g.player.x, g.player.y, g.player.width, g.player.height, e.x, e.y, e.radius) is
+                g = damage_player(g)
+                hit = true
+            end
+            i += 1
+        end
+
+        ;; body + projectiles of the tier-1 boss (as in the Lua source only type 'boss' is checked here)
+        i = 0
+        while i < g.enemies.len() is
+            if g.enemies[i].kind == types::en_boss() && !g.enemies[i].disabled is
+                let e: types::Enemy = g.enemies[i]
+                if util::rect_circle_hit(g.player.x, g.player.y, g.player.width, g.player.height, e.x, e.y, e.radius) is
+                    g = damage_player(g)
+                end
+                let mut keep: [types::Projectile] = []
+                let mut k: int = 0
+                while k < e.projectiles.len() is
+                    let pr: types::Projectile = e.projectiles[k]
+                    if util::rect_circle_hit(g.player.x, g.player.y, g.player.width, g.player.height, pr.x, pr.y, pr.radius) is
+                        g = damage_player(g)
+                    else is
+                        keep.push(pr)
+                    end
+                    k += 1
+                end
+                g.enemies[i].projectiles = keep
+            end
+            i += 1
+        end
+    end
+
+    ;; data
+    i = 0
+    while i < g.data.len() is
+        let d: types::DataItem = g.data[i]
+        if !d.collected && util::rect_circle_hit(g.player.x, g.player.y, g.player.width, g.player.height, d.x + 10.0, d.y + 10.0, 10.0) is
+            g.data[i].collected = true
+            g.combo_timer = 3.0
+            g.multiplier = types::fmin(g.multiplier + 0.5, 5.0)
+            g.score += 10.0 * g.multiplier
+            g = util::create_particles(g, d.x, d.y, 15, 1.0, 1.0, 0.0)
+            let mut collected: int = 0
+            let mut k: int = 0
+            while k < g.data.len() is
+                if g.data[k].collected is collected += 1 end
+                k += 1
+            end
+            if collected == g.data.len() is g = util::unlock_achievement(g, types::ach_data_collector()) end
+            if g.multiplier >= 5.0 is g = util::unlock_achievement(g, types::ach_perfect_run()) end
+        end
+        i += 1
+    end
+
+    ;; power-ups
+    i = 0
+    while i < g.powerups.len() is
+        let p: types::Powerup = g.powerups[i]
+        if !p.collected && util::rect_circle_hit(g.player.x, g.player.y, g.player.width, g.player.height, p.x + 10.0, p.y + 10.0, 10.0) is
+            g.powerups[i].collected = true
+            if p.kind == types::pw_invincibility() is
+                g.player.invincible = true
+                g.player.invincible_timer = 5.0
+                g = util::create_particles(g, p.x, p.y, 20, 0.0, 0.0, 1.0)
+            elsif p.kind == types::pw_speed() is
+                g.player.speed_boost_timer = 5.0
+                g = util::create_particles(g, p.x, p.y, 20, 1.0, 0.0, 1.0)
+                g = util::unlock_achievement(g, types::ach_speed_demon())
+            elsif p.kind == types::pw_double_jump() is
+                g.player.double_jump = true
+                g = util::create_particles(g, p.x, p.y, 20, 0.0, 1.0, 0.5)
+            else is
+                g.player.shield = true
+                g = util::create_particles(g, p.x, p.y, 20, 1.0, 1.0, 1.0)
+            end
+        end
+        i += 1
+    end
+
+    if g.player.invincible_timer <= 0.0 is g.player.invincible = false end
+
+    if g.combo_timer > 0.0 is
+        g.combo_timer -= dt
+        if g.combo_timer <= 0.0 is g.multiplier = 1.0 end
+    end
+
+    ;; particles
+    let mut alive: [types::Particle] = []
+    i = 0
+    while i < g.player.particles.len() is
+        let mut p: types::Particle = g.player.particles[i]
+        p.x += p.vx * dt
+        p.y += p.vy * dt
+        p.life -= dt
+        if p.life > 0.0 is alive.push(p) end
+        i += 1
+    end
+    g.player.particles = alive
+    return g
+end
+
+;; (ox, oy): where the world origin is on screen (camera + shake)
+pub fn draw_player(g: types::Game, ox: f64, oy: f64) is
+    let p: types::Player = g.player
+    let t: f64 = h2d_gfx::get_time()
+    let x: f64 = p.x + ox
+    let y: f64 = p.y + oy
+    if p.invincible is
+        h2d_gfx::draw_rectangle(x - 10.0, y - 10.0, p.width + 20.0, p.height + 20.0, types::rgba(1.0, 1.0, 1.0, 0.5 + 0.5 * m::sin(t * 10.0)))
+    end
+
+    let mut cr: f64 = 0.0
+    let mut cg: f64 = 1.0
+    let mut cb: f64 = 1.0
+    if p.hit_flash_timer > 0.0 is
+        cr = 1.0
+        cg = 0.2
+        cb = 0.2
+    elsif p.speed_boost_timer > 0.0 is
+        cr = 1.0
+        cg = 0.0
+        cb = 1.0
+    elsif p.double_jump is
+        cr = 0.0
+        cg = 1.0
+        cb = 0.5
+    elsif p.shield is
+        cr = 1.0
+        cg = 1.0
+        cb = 1.0
+    end
+    let col: h2d_color::Color = types::rgba(cr, cg, cb, 1.0)
+    if p.shape == types::sh_square() is
+        h2d_gfx::draw_rectangle(x, y, p.width, p.height, col)
+    elsif p.shape == types::sh_circle() is
+        h2d_gfx::draw_circle(x + p.width / 2.0, y + p.height / 2.0, p.width / 2.0, col)
+    else is
+        h2d_gfx::draw_triangle(x, y + p.height, x + p.width / 2.0, y, x + p.width, y + p.height, col)
+    end
+
+    if p.shield is
+        h2d_gfx::draw_circle_lines(x + p.width / 2.0, y + p.height / 2.0, p.width * 0.8, types::rgba(1.0, 1.0, 1.0, 0.4))
+    end
+
+    let mut i: int = 0
+    while i < p.particles.len() is
+        let q: types::Particle = p.particles[i]
+        h2d_gfx::draw_circle(q.x + ox, q.y + oy, 3.0, types::rgba(q.r, q.g, q.b, types::fmax(q.life / q.max_life, 0.0)))
+        i += 1
+    end
+end
