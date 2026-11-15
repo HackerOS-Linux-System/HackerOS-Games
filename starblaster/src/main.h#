@@ -1,0 +1,401 @@
+use "bit -> h2d"
+
+mod types
+mod physics
+mod enemy
+mod render
+mod save
+mod text
+
+;; Starblaster — main.h#  (port of starblaster/src/main.rs)
+;;
+;; Rust + macroquad  ->  H# + H2D (graphics engine, SDL2) + Bit.hk.
+;; Same game: waves driven by a director, 7 enemy types incl. a boss every 10
+;; waves, heat-limited cannon, graze / combo scoring, power-ups, Nova Bomb,
+;; quicksave (F5/F9), persistent high score.
+;;
+;; Headless smoke test:
+;;   SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy H2D_MAX_FRAMES=300 H2D_SCREENSHOT=shot.png ./starblaster
+
+;; ── input shortcuts ───────────────────────────────────────────────────────
+fn down(k: int) -> bool is
+    return h2d_input2d::is_key_down(k)
+end
+
+fn pressed(k: int) -> bool is
+    return h2d_input2d::is_key_pressed(k)
+end
+
+;; ── constructors ──────────────────────────────────────────────────────────
+fn new_stars() -> [types::Star] is
+    let mut stars: [types::Star] = []
+    let mut i: int = 0
+    while i < 140 is
+        stars.push(types::Star {
+            pos: types::v(types::rf(0.0, types::sw()), types::rf(0.0, types::sh())),
+            speed: types::rf(0.3, 1.8),
+            size: types::rf(0.5, 2.2),
+            alpha: types::rf(0.3, 0.9),
+        })
+        i += 1
+    end
+    return stars
+end
+
+fn new_world(high_score: int) -> types::World is
+    ;; velocity damping 0.93 per frame at 60 fps == drag 4.2 per second
+    let fx: h2d_particles::ParticleSystem = h2d_particles::set_drag(h2d_particles::new_system(h2d_gfx::get_ticks_ms() + 7), 4.2)
+    return types::World {
+        state: types::gs_menu(),
+        player: types::new_player(high_score),
+        enemies: [], bullets: [], powerups: [],
+        fx: fx,
+        director: types::new_director(),
+        stars: new_stars(),
+        star_scroll: 0.0,
+    }
+end
+
+;; Fresh run: new player (keeping the high score), nothing on screen, new director.
+fn reset_run(mut w: types::World, high_score: int) -> types::World is
+    w.player = types::new_player(high_score)
+    w.enemies = []
+    w.bullets = []
+    w.powerups = []
+    w.fx.particles = []
+    w.director = types::new_director()
+    return w
+end
+
+;; F9 — restore player / enemies / bullets / difficulty / wave from the quicksave.
+fn quickload(mut w: types::World) -> (types::World, bool) is
+    let gs: types::GameSave = save::load_game()
+    if !gs.ok is return (w, false) end
+    w.player = gs.player
+    w.enemies = gs.enemies
+    w.bullets = gs.bullets
+    w.director.difficulty = gs.difficulty
+    w.director.wave = gs.wave
+    return (w, true)
+end
+
+fn spawn_player_bullet(mut w: types::World, x: f64, y: f64, vx: f64, vy: f64, dmg: int) -> types::World is
+    w.bullets.push(types::Bullet { pos: types::v(x, y), vel: types::v(vx, vy), alive: true, is_player: true, damage: dmg, grazed: false })
+    return w
+end
+
+;; ── one frame of gameplay (everything before drawing) ─────────────────────
+fn update_playing(mut w: types::World, now: f64, dt: f64) -> types::World is
+    let sw: f64 = types::sw()
+    let sh: f64 = types::sh()
+    let pr: f64 = types::player_radius()
+
+    ;; ── input ──
+    let spd: f64 = types::player_speed() * dt
+    if down(h2d_keys::key_left()) || down(h2d_keys::key_a()) is w.player.pos.x -= spd end
+    if down(h2d_keys::key_right()) || down(h2d_keys::key_d()) is w.player.pos.x += spd end
+    if down(h2d_keys::key_up()) || down(h2d_keys::key_w()) is w.player.pos.y -= spd end
+    if down(h2d_keys::key_down()) || down(h2d_keys::key_s()) is w.player.pos.y += spd end
+    w.player.pos.x = h2d_vec2::clamp_f(w.player.pos.x, types::screen_padding() + pr, sw - types::screen_padding() - pr)
+    w.player.pos.y = h2d_vec2::clamp_f(w.player.pos.y, 50.0, sh - types::screen_padding() - pr)
+
+    ;; shoot
+    let mut rate: f64 = types::fire_rate()
+    if w.player.rapid_fire is rate = types::fire_rate() * 0.4 end
+    let shooting: bool = down(h2d_keys::key_space()) || down(h2d_keys::key_z())
+    if shooting && !w.player.overheated && now - w.player.last_shot >= rate is
+        w.player.heat += types::heat_per_shot()
+        w.player.shots_fired += 1
+        w.player.last_shot = now
+        let spd_b: f64 = 680.0
+        let mut dmg: int = 1
+        if w.player.rapid_fire is dmg = 2 end
+        let px: f64 = w.player.pos.x
+        let py: f64 = w.player.pos.y
+        w = spawn_player_bullet(w, px, py, 0.0, 0.0 - spd_b, dmg)
+        if w.player.double_cannon is
+            w = spawn_player_bullet(w, px - 18.0, py, 0.0 - 20.0, 0.0 - spd_b, dmg)
+            w = spawn_player_bullet(w, px + 18.0, py, 20.0, 0.0 - spd_b, dmg)
+        end
+    end
+
+    ;; heat cooling
+    if !shooting || w.player.overheated is
+        w.player.heat = w.player.heat - types::cooling_rate() * dt
+        if w.player.heat < 0.0 is w.player.heat = 0.0 end
+    end
+    if w.player.heat >= types::max_heat() is w.player.overheated = true end
+    if w.player.overheated && w.player.heat <= 0.0 is w.player.overheated = false end
+
+    ;; Nova Bomb
+    if (pressed(h2d_keys::key_x()) || pressed(h2d_keys::key_lshift())) && w.player.ulti_energy >= 100.0 is
+        let nb = physics::nova_bomb(w)
+        w = nb.0
+        let nova_kills: int = nb.1
+        w.player.ulti_energy = 0.0
+        w.player.score += nova_kills * 200 * w.player.combo
+        w.player.combo += nova_kills
+        w.player.combo_timer = types::combo_decay()
+    end
+
+    ;; power-up timers
+    if w.player.rapid_fire is
+        w.player.rapid_timer -= dt
+        if w.player.rapid_timer <= 0.0 is w.player.rapid_fire = false end
+    end
+    if w.player.double_cannon is
+        w.player.double_timer -= dt
+        if w.player.double_timer <= 0.0 is w.player.double_cannon = false end
+    end
+    if w.player.invincible > 0.0 is w.player.invincible -= dt end
+
+    ;; combo decay
+    if w.player.combo > 1 is
+        w.player.combo_timer -= dt
+        if w.player.combo_timer <= 0.0 is w.player.combo = 1 end
+    end
+
+    ;; quicksave / quickload
+    if pressed(h2d_keys::key_f5()) is save::save_game(w.player, w.enemies, w.bullets, w.director) end
+    if pressed(h2d_keys::key_f9()) is
+        let ql = quickload(w)
+        w = ql.0
+    end
+
+    ;; ── update bullets ──
+    let mut i: int = 0
+    while i < w.bullets.len() is
+        w.bullets[i].pos.x += w.bullets[i].vel.x * dt
+        w.bullets[i].pos.y += w.bullets[i].vel.y * dt
+        let bx: f64 = w.bullets[i].pos.x
+        let by: f64 = w.bullets[i].pos.y
+        if by < 0.0 - 10.0 || by > sh + 10.0 || bx < 0.0 - 20.0 || bx > sw + 20.0 is
+            w.bullets[i].alive = false
+        end
+        i += 1
+    end
+
+    ;; ── enemy update ──
+    i = 0
+    while i < w.enemies.len() is
+        w = enemy::update_enemy(w, i, dt, now)
+        i += 1
+    end
+
+    ;; ── physics ──
+    let hit = physics::check_player_bullets_vs_enemies(w)
+    w = hit.0
+    let kills: int = hit.1
+    let graze: bool = hit.2
+    if kills > 0 is
+        let pts: int = kills * 100 * w.player.combo
+        w.player.score += pts
+        w.player.combo += kills
+        w.player.combo_timer = types::combo_decay()
+        w.player.ulti_energy = w.player.ulti_energy + (kills + 0.0) * 12.0
+        if w.player.ulti_energy > 100.0 is w.player.ulti_energy = 100.0 end
+        w.director.kills_in_wave += kills
+        let mut j: int = 0
+        while j < w.enemies.len() is
+            if w.enemies[j].health <= 0 is
+                w.powerups = physics::maybe_spawn_powerup(w.enemies[j].pos, w.powerups)
+            end
+            j += 1
+        end
+    end
+    if graze is
+        w.player.score += 15 * w.player.combo
+        w.player.ulti_energy = w.player.ulti_energy + 3.0
+        if w.player.ulti_energy > 100.0 is w.player.ulti_energy = 100.0 end
+        w.fx = physics::spawn_graze_particles(w.fx, w.player.pos)
+    end
+    w = physics::check_enemy_bullets_vs_player(w)
+    w = physics::check_enemies_vs_player(w)
+    w = physics::check_powerup_pickup(w)
+
+    ;; high score
+    if w.player.score > w.player.high_score is w.player.high_score = w.player.score end
+
+    ;; ── particles / power-up lifetimes ──
+    w.fx = h2d_particles::update(w.fx, dt)
+    i = 0
+    while i < w.powerups.len() is
+        w.powerups[i].lifetime -= dt
+        if w.powerups[i].lifetime <= 0.0 is w.powerups[i].alive = false end
+        i += 1
+    end
+
+    ;; ── cleanup ──
+    let mut keep_e: [types::EnemyData] = []
+    let mut boss_left: bool = false
+    i = 0
+    while i < w.enemies.len() is
+        if w.enemies[i].health > 0 && w.enemies[i].pos.y < sh + 120.0 is
+            keep_e.push(w.enemies[i])
+            if w.enemies[i].enemy_type == types::et_boss() is boss_left = true end
+        end
+        i += 1
+    end
+    w.enemies = keep_e
+    ;; (Rust only cleared this flag when a bullet made the kill, so a boss
+    ;;  finished off by the Nova Bomb froze the director — fixed here.)
+    if !boss_left is w.director.boss_alive = false end
+
+    let mut keep_b: [types::Bullet] = []
+    i = 0
+    while i < w.bullets.len() is
+        if w.bullets[i].alive is keep_b.push(w.bullets[i]) end
+        i += 1
+    end
+    w.bullets = keep_b
+
+    let mut keep_p: [types::PowerUp] = []
+    i = 0
+    while i < w.powerups.len() is
+        if w.powerups[i].alive is keep_p.push(w.powerups[i]) end
+        i += 1
+    end
+    w.powerups = keep_p
+
+    ;; ── director ──
+    w = enemy::director_tick(w, dt)
+    if w.director.wave_msg != "" is
+        w.director.wave_msg_t -= dt
+        if w.director.wave_msg_t <= 0.0 is w.director.wave_msg = "" end
+    end
+    return w
+end
+
+;; ── drawing helpers ───────────────────────────────────────────────────────
+
+fn draw_enemies(w: types::World) is
+    let mut i: int = 0
+    while i < w.enemies.len() is
+        render::draw_enemy(w.enemies[i])
+        i += 1
+    end
+end
+
+fn draw_bullets(w: types::World) is
+    let mut i: int = 0
+    while i < w.bullets.len() is
+        render::draw_bullet(w.bullets[i])
+        i += 1
+    end
+end
+
+fn draw_powerups(fo: text::Fonts, w: types::World) is
+    let mut i: int = 0
+    while i < w.powerups.len() is
+        render::draw_powerup(fo, w.powerups[i])
+        i += 1
+    end
+end
+
+fn accuracy(p: types::PlayerState) -> int is
+    if p.shots_fired > 0 is return p.shots_hit * 100 / p.shots_fired end
+    return 0
+end
+
+;; ── main ──────────────────────────────────────────────────────────────────
+
+fn main() is
+    let _ok: bool = h2d_gfx::init_window(types::win_w(), types::win_h(), "Starblaster")
+    h2d_gfx::set_target_fps(60)
+    h2d_gfx::set_logical_size(types::win_w(), types::win_h())
+    h2d_gfx::set_window_icon("images/starblaster.png")
+
+    let fo: text::Fonts = text::load_fonts()
+    let mut w: types::World = new_world(save::load_hiscore())
+
+    while !h2d_gfx::window_should_close() is
+        let mut dt: f64 = h2d_gfx::get_frame_time()
+        if dt > 0.05 is dt = 0.05 end
+        let now: f64 = h2d_gfx::get_time()
+
+        if w.state == types::gs_menu() is
+            h2d_gfx::clear_background(render_bg(0.06))
+            w.star_scroll = render::draw_starfield(w.stars, dt, w.star_scroll)
+            render::draw_menu(fo, w.player.high_score)
+            if pressed(h2d_keys::key_space()) || pressed(h2d_keys::key_enter()) is
+                w = reset_run(w, w.player.high_score)
+                w.state = types::gs_playing()
+            end
+            if pressed(h2d_keys::key_f9()) is
+                let ql = quickload(w)
+                w = ql.0
+                if ql.1 is w.state = types::gs_playing() end
+            end
+
+        elsif w.state == types::gs_playing() is
+            w = update_playing(w, now, dt)
+
+            ;; draw
+            h2d_gfx::clear_background(render_bg(0.05))
+            w.star_scroll = render::draw_starfield(w.stars, dt, w.star_scroll)
+            draw_enemies(w)
+            draw_powerups(fo, w)
+            draw_bullets(w)
+            h2d_particles::draw(w.fx, 0.0, 0.0)
+            render::draw_player(w.player)
+            render::draw_hud(fo, w.player, w.director.wave, w.director.difficulty)
+            if w.director.wave_msg != "" is
+                let mut a: f64 = w.director.wave_msg_t / 3.2
+                if a < 0.0 is a = 0.0 end
+                if a > 1.0 is a = 1.0 end
+                render::draw_wave_msg(fo, w.director.wave_msg, a)
+            end
+
+            ;; state transitions
+            if pressed(h2d_keys::key_escape()) is w.state = types::gs_paused() end
+            if w.player.health <= 0 is
+                save::save_hiscore(w.player.high_score)
+                w.state = types::gs_gameover()
+            end
+
+        elsif w.state == types::gs_paused() is
+            h2d_gfx::clear_background(render_bg(0.05))
+            w.star_scroll = render::draw_starfield(w.stars, dt, w.star_scroll)
+            draw_enemies(w)
+            draw_bullets(w)
+            render::draw_player(w.player)
+            render::draw_hud(fo, w.player, w.director.wave, w.director.difficulty)
+            render::draw_pause_screen(fo)
+
+            if pressed(h2d_keys::key_escape()) is w.state = types::gs_playing() end
+            if pressed(h2d_keys::key_q()) is
+                save::save_hiscore(w.player.high_score)
+                w = reset_run(w, w.player.high_score)
+                w.state = types::gs_menu()
+            end
+
+        elsif w.state == types::gs_gameover() is
+            h2d_gfx::clear_background(render_bg(0.05))
+            w.star_scroll = render::draw_starfield(w.stars, dt, w.star_scroll)
+            render::draw_game_over(fo, w.player.score, w.player.high_score, w.director.wave, accuracy(w.player))
+
+            if pressed(h2d_keys::key_space()) || pressed(h2d_keys::key_enter()) is
+                w = reset_run(w, w.player.high_score)
+                w.state = types::gs_playing()
+            end
+            if pressed(h2d_keys::key_escape()) is
+                w = reset_run(w, w.player.high_score)
+                w.state = types::gs_menu()
+            end
+
+        else is
+            ;; GameState::Victory -> Menu
+            w.state = types::gs_menu()
+        end
+
+        h2d_gfx::next_frame()
+    end
+
+    text::unload_fonts(fo)
+    h2d_gfx::close_window()
+end
+
+;; background colours of the Rust version: (0, 0, b) with b = 0.06 (menu) / 0.05
+fn render_bg(b: f64) -> h2d_color::Color is
+    return h2d_color::color(0, 0, types::f2i(b * 255.0 + 0.5), 255)
+end
