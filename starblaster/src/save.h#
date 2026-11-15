@@ -1,0 +1,188 @@
+use "std -> strings" from "str"
+use "std -> conv" from "conv"
+use "bit -> h2d"
+
+mod types
+
+;; Starblaster — save.h#  (port of starblaster/src/save.rs)
+;;
+;; serde_json is replaced by H2D's `h2d_save` (plain `key=value` lines, the
+;; same module a H2D game uses for settings / records). The quicksave keeps
+;; exactly what GameSave kept: player, enemies, bullets, difficulty, wave.
+;;
+;;   starblaster-save.sav     player=…  enemy_n=…  enemy_0=…  bullet_n=…  difficulty=…  wave=…
+;;   starblaster-hiscore.sav  best=<score>
+;;
+;; One intentional fix: `last_shot` / `last_action_time` are absolute
+;; timestamps of the previous run. After a restart the clock starts at 0, so
+;; the Rust version could not shoot (or enemies could not fire) until the new
+;; run caught up with the old one. They are reset to 0 on load.
+
+fn save_path() -> string is return "starblaster-save.sav" end
+fn hiscore_path() -> string is return "starblaster-hiscore.sav" end
+
+fn b2s(b: bool) -> string is
+    if b is return "1" end
+    return "0"
+end
+
+fn num(x: f64) -> string is
+    return to_string(x)
+end
+
+fn join(parts: [string]) -> string is
+    return str::join(parts, ",")
+end
+
+fn fl(p: [string], i: int) -> f64 is
+    return conv::str_to_float(p[i])
+end
+
+fn gi(p: [string], i: int) -> int is
+    return conv::str_to_int(p[i])
+end
+
+fn bl(p: [string], i: int) -> bool is
+    return p[i] == "1"
+end
+
+;; ── encode ────────────────────────────────────────────────────────────────
+
+fn encode_player(p: types::PlayerState) -> string is
+    return join([
+        num(p.pos.x), num(p.pos.y), to_string(p.health), to_string(p.max_health),
+        num(p.heat), b2s(p.overheated), to_string(p.score), to_string(p.high_score),
+        to_string(p.combo), num(p.combo_timer), num(p.ulti_energy),
+        to_string(p.shots_fired), to_string(p.shots_hit),
+        b2s(p.shield), b2s(p.rapid_fire), num(p.rapid_timer),
+        b2s(p.double_cannon), num(p.double_timer), num(p.invincible), num(p.last_shot),
+    ])
+end
+
+fn encode_enemy(e: types::EnemyData) -> string is
+    return join([
+        num(e.pos.x), num(e.pos.y), num(e.vel.x), num(e.vel.y),
+        to_string(e.enemy_type), to_string(e.state), to_string(e.health), to_string(e.max_health),
+        num(e.last_action_time), num(e.angle),
+    ])
+end
+
+fn encode_bullet(b: types::Bullet) -> string is
+    return join([
+        num(b.pos.x), num(b.pos.y), num(b.vel.x), num(b.vel.y),
+        b2s(b.alive), b2s(b.is_player), to_string(b.damage), b2s(b.grazed),
+    ])
+end
+
+;; ── decode (a short / damaged line gives `None`, like serde's Err) ────────
+
+fn decode_player(s: string) -> (bool, types::PlayerState) is
+    let p: [string] = str::split(s, ",")
+    if p.len() < 20 is return (false, types::new_player(0)) end
+    return (true, types::PlayerState {
+        pos: h2d_vec2::vec2(fl(p, 0), fl(p, 1)),
+        health: gi(p, 2), max_health: gi(p, 3),
+        heat: fl(p, 4), overheated: bl(p, 5),
+        score: gi(p, 6), high_score: gi(p, 7),
+        combo: gi(p, 8), combo_timer: fl(p, 9), ulti_energy: fl(p, 10),
+        shots_fired: gi(p, 11), shots_hit: gi(p, 12),
+        shield: bl(p, 13), rapid_fire: bl(p, 14), rapid_timer: fl(p, 15),
+        double_cannon: bl(p, 16), double_timer: fl(p, 17),
+        invincible: fl(p, 18),
+        last_shot: 0.0,
+    })
+end
+
+fn decode_enemy(s: string) -> (bool, types::EnemyData) is
+    let p: [string] = str::split(s, ",")
+    let blank: types::EnemyData = types::EnemyData { pos: types::v(0.0, 0.0), vel: types::v(0.0, 0.0), enemy_type: 0, state: 1, health: 0, max_health: 1, last_action_time: 0.0, angle: 0.0 }
+    if p.len() < 10 is return (false, blank) end
+    return (true, types::EnemyData {
+        pos: h2d_vec2::vec2(fl(p, 0), fl(p, 1)),
+        vel: h2d_vec2::vec2(fl(p, 2), fl(p, 3)),
+        enemy_type: gi(p, 4), state: gi(p, 5),
+        health: gi(p, 6), max_health: gi(p, 7),
+        last_action_time: 0.0,
+        angle: fl(p, 9),
+    })
+end
+
+fn decode_bullet(s: string) -> (bool, types::Bullet) is
+    let p: [string] = str::split(s, ",")
+    let blank: types::Bullet = types::Bullet { pos: types::v(0.0, 0.0), vel: types::v(0.0, 0.0), alive: false, is_player: false, damage: 0, grazed: false }
+    if p.len() < 8 is return (false, blank) end
+    return (true, types::Bullet {
+        pos: h2d_vec2::vec2(fl(p, 0), fl(p, 1)),
+        vel: h2d_vec2::vec2(fl(p, 2), fl(p, 3)),
+        alive: bl(p, 4), is_player: bl(p, 5), damage: gi(p, 6), grazed: bl(p, 7),
+    })
+end
+
+;; ── public API (same names as save.rs) ────────────────────────────────────
+
+pub fn save_game(player: types::PlayerState, enemies: [types::EnemyData], bullets: [types::Bullet], director: types::Director) is
+    let mut sv: h2d_save::Save = h2d_save::new_save(save_path())
+    sv = h2d_save::set_str(sv, "player", encode_player(player))
+    sv = h2d_save::set_int(sv, "enemy_n", enemies.len())
+    let mut i: int = 0
+    while i < enemies.len() is
+        sv = h2d_save::set_str(sv, "enemy_" + to_string(i), encode_enemy(enemies[i]))
+        i += 1
+    end
+    sv = h2d_save::set_int(sv, "bullet_n", bullets.len())
+    i = 0
+    while i < bullets.len() is
+        sv = h2d_save::set_str(sv, "bullet_" + to_string(i), encode_bullet(bullets[i]))
+        i += 1
+    end
+    sv = h2d_save::set_f64(sv, "difficulty", director.difficulty)
+    sv = h2d_save::set_int(sv, "wave", director.wave)
+    let _ok: bool = h2d_save::commit(sv)
+end
+
+pub fn load_game() -> types::GameSave is
+    let empty: types::GameSave = types::GameSave {
+        ok: false, player: types::new_player(0), enemies: [], bullets: [], difficulty: 1.0, wave: 0,
+    }
+    let sv: h2d_save::Save = h2d_save::load(save_path())
+    if !h2d_save::has(sv, "player") is return empty end
+    let pl = decode_player(h2d_save::get_str(sv, "player", ""))
+    if !pl.0 is return empty end
+
+    let mut enemies: [types::EnemyData] = []
+    let en: int = h2d_save::get_int(sv, "enemy_n", 0)
+    let mut i: int = 0
+    while i < en is
+        let r = decode_enemy(h2d_save::get_str(sv, "enemy_" + to_string(i), ""))
+        if !r.0 is return empty end
+        enemies.push(r.1)
+        i += 1
+    end
+
+    let mut bullets: [types::Bullet] = []
+    let bn: int = h2d_save::get_int(sv, "bullet_n", 0)
+    i = 0
+    while i < bn is
+        let r = decode_bullet(h2d_save::get_str(sv, "bullet_" + to_string(i), ""))
+        if !r.0 is return empty end
+        bullets.push(r.1)
+        i += 1
+    end
+
+    return types::GameSave {
+        ok: true, player: pl.1, enemies: enemies, bullets: bullets,
+        difficulty: h2d_save::get_f64(sv, "difficulty", 1.0),
+        wave: h2d_save::get_int(sv, "wave", 0),
+    }
+end
+
+pub fn save_hiscore(score: int) is
+    let mut sv: h2d_save::Save = h2d_save::new_save(hiscore_path())
+    sv = h2d_save::set_int(sv, "best", score)
+    let _ok: bool = h2d_save::commit(sv)
+end
+
+pub fn load_hiscore() -> int is
+    let sv: h2d_save::Save = h2d_save::load(hiscore_path())
+    return h2d_save::get_int(sv, "best", 0)
+end
