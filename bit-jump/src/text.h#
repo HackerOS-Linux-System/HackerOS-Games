@@ -1,0 +1,160 @@
+use "std -> strings" from "str"
+use "bit -> h2d"
+
+;; Bit Jump — text.h#  (new module; macroquad drew text with its built-in font)
+;;
+;; H2D has two text paths: an 8x8 bitmap font (ASCII only) and TrueType.
+;; The original HUD uses sizes 10..72 and the glyphs × ★ — •, so the game loads
+;; DejaVu Sans once per size it needs and draws through it. If no .ttf is found
+;; it falls back to the bitmap font (sizes snapped to multiples of 8 and the
+;; four non-ASCII glyphs replaced), so the game still runs everywhere.
+;; Text positions are BASELINES, exactly as in macroquad's draw_text.
+
+pub struct Fonts is
+    pub ok:    bool
+    pub sizes: [int]
+    pub fonts: [h2d_gfx::Font]
+end
+
+fn wanted_sizes() -> [int] is
+    return [12, 13, 15, 17, 22, 24, 26, 28]
+end
+
+fn candidates() -> [string] is
+    return [
+        "assets/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/dejavu-sans-fonts/DejaVuSans.ttf",
+        "/usr/share/fonts/TTF/DejaVuSans.ttf",
+        "/usr/share/fonts/liberation/LiberationSans-Regular.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+    ]
+end
+
+pub fn load_fonts() -> Fonts is
+    let sizes: [int] = wanted_sizes()
+    let paths: [string] = candidates()
+    let mut fo: Fonts = Fonts { ok: false, sizes: sizes, fonts: [] }
+    let mut p: int = 0
+    while p < paths.len() && !fo.ok is
+        let probe: h2d_gfx::Font = h2d_gfx::load_font(paths[p], 20)
+        if h2d_gfx::is_font_valid(probe) is
+            h2d_gfx::unload_font(probe)
+            let mut list: [h2d_gfx::Font] = []
+            let mut i: int = 0
+            while i < sizes.len() is
+                list.push(h2d_gfx::load_font(paths[p], sizes[i]))
+                i += 1
+            end
+            fo.fonts = list
+            fo.ok = true
+        end
+        p += 1
+    end
+    return fo
+end
+
+pub fn unload_fonts(fo: Fonts) is
+    let mut i: int = 0
+    while i < fo.fonts.len() is
+        h2d_gfx::unload_font(fo.fonts[i])
+        i += 1
+    end
+end
+
+;; index of the loaded font closest to `size`
+fn font_index(fo: Fonts, size: int) -> int is
+    let mut best: int = 0
+    let mut best_d: int = 100000
+    let mut i: int = 0
+    while i < fo.sizes.len() is
+        let mut d: int = fo.sizes[i] - size
+        if d < 0 is d = 0 - d end
+        if d < best_d is
+            best_d = d
+            best = i
+        end
+        i += 1
+    end
+    return best
+end
+
+;; bitmap fallback: macroquad size -> multiple of 8
+fn bitmap_size(size: int) -> int is
+    if size >= 64 is return 48 end
+    if size >= 50 is return 40 end
+    if size >= 40 is return 32 end
+    if size >= 24 is return 24 end
+    if size >= 15 is return 16 end
+    if size >= 12 is return 16 end
+    return 8
+end
+
+fn ascii(s: string) -> string is
+    let mut o: string = str::replace_all(s, "×", "x")
+    o = str::replace_all(o, "★", "*")
+    o = str::replace_all(o, "—", "-")
+    o = str::replace_all(o, "•", "|")
+    o = str::replace_all(o, "ą", "a")
+    o = str::replace_all(o, "ć", "c")
+    o = str::replace_all(o, "ę", "e")
+    o = str::replace_all(o, "ł", "l")
+    o = str::replace_all(o, "ń", "n")
+    o = str::replace_all(o, "ś", "s")
+    o = str::replace_all(o, "ź", "z")
+    o = str::replace_all(o, "ż", "z")
+    o = str::replace_all(o, "Ó", "O")
+    o = str::replace_all(o, "Ł", "L")
+    o = str::replace_all(o, "Ś", "S")
+    o = str::replace_all(o, "–", "-")
+    o = str::replace_all(o, "∞", "inf")
+    o = str::replace_all(o, "✗", "x")
+    o = str::replace_all(o, "→", "->")
+    o = str::replace_all(o, "ã", "a")
+    o = str::replace_all(o, "ö", "o")
+    o = str::replace_all(o, "ó", "o")
+    o = str::replace_all(o, "é", "e")
+    o = str::replace_all(o, "▶", ">")
+    o = str::replace_all(o, "◄", "<")
+    o = str::replace_all(o, "⚑", "*")
+    o = str::replace_all(o, "⬛", "#")
+    o = str::replace_all(o, "⚠", "!")
+    o = str::replace_all(o, "✓", "v")
+    o = str::replace_all(o, "←", "<-")
+    return o
+end
+
+;; Width in pixels of `s` at macroquad-size `size`.
+pub fn width(fo: Fonts, s: string, size: int) -> f64 is
+    if fo.ok is
+        return h2d_gfx::measure_text_font(fo.fonts[font_index(fo, size)], s) + 0.0
+    end
+    return h2d_gfx::measure_text(ascii(s), bitmap_size(size)) + 0.0
+end
+
+;; Draws `s` with its baseline at `y`.
+pub fn draw(fo: Fonts, s: string, x: f64, y: f64, size: int, c: h2d_color::Color) is
+    if fo.ok is
+        let f: h2d_gfx::Font = fo.fonts[font_index(fo, size)]
+        h2d_gfx::draw_text_font(f, s, x, y - (size + 0.0) * 0.93, c)
+    else is
+        let b: int = bitmap_size(size)
+        h2d_gfx::draw_text(ascii(s), x, y - (b + 0.0) * 0.9, b, c)
+    end
+end
+
+;; Draws `s` horizontally centred on `cx`.
+pub fn draw_centered(fo: Fonts, s: string, cx: f64, y: f64, size: int, c: h2d_color::Color) is
+    draw(fo, s, cx - width(fo, s, size) / 2.0, y, size, c)
+end
+
+;; Draws `s` with its TOP-LEFT corner at (x, y) — LÖVE's love.graphics.print origin.
+;; `size` is 12 * scale (LÖVE's default font is 12 px).
+pub fn draw_top(fo: Fonts, s: string, x: f64, y: f64, size: int, c: h2d_color::Color) is
+    if fo.ok is
+        h2d_gfx::draw_text_font(fo.fonts[font_index(fo, size)], s, x, y, c)
+    else is
+        h2d_gfx::draw_text(ascii(s), x, y, bitmap_size(size), c)
+    end
+end
