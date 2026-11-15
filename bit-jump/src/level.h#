@@ -1,0 +1,565 @@
+use "std -> math" from "m"
+use "bit -> h2d"
+
+mod types
+mod util
+mod levels
+mod player
+mod text
+
+;; Bit Jump — level.h#  (port of src/levels.lua's loadLevel + src/levels_logic.lua)
+;; The level tables themselves are in levels.h#.
+
+fn rgba(r: f64, g: f64, b: f64, a: f64) -> h2d_color::Color is
+    return types::rgba(r, g, b, a)
+end
+
+;; "%.1f" for non-negative values
+fn fmt1(x: f64) -> string is
+    let n: int = types::f2i(x * 10.0 + 0.5)
+    return to_string(n / 10) + "." + to_string(n % 10)
+end
+
+fn rect(x: f64, y: f64, w: f64, h: f64, c: h2d_color::Color) is
+    h2d_gfx::draw_rectangle(x, y, w, h, c)
+end
+
+fn rect_line(x: f64, y: f64, w: f64, h: f64, c: h2d_color::Color) is
+    h2d_gfx::draw_rectangle_lines(x, y, w, h, 1.0, c)
+end
+
+;; ── loadLevel ─────────────────────────────────────────────────────────────
+pub fn load_level(mut g: types::Game, level: int) -> types::Game is
+    let mut n: int = level
+    if n < 1 || n > levels::count() is n = 1 end
+    let lvl: types::Level = levels::get_level(n)
+    g.platforms = lvl.platforms
+    g.spikes = lvl.spikes
+    g.data = lvl.data
+    g.enemies = lvl.enemies
+    g.powerups = lvl.powerups
+    ;; falling spikes start at a random height above the screen
+    let mut fs: [types::FallingSpike] = []
+    let mut i: int = 0
+    while i < lvl.falling_spikes.len() is
+        let mut s: types::FallingSpike = lvl.falling_spikes[i]
+        s.y = types::i2f(types::rand_i(0 - 600, 0 - 20))
+        fs.push(s)
+        i += 1
+    end
+    g.falling_spikes = fs
+    g.goal = lvl.goal
+
+    g = player::reset_player(g)
+    g.camera_x = 0.0
+    g.multiplier = 1.0
+    g.combo_timer = 0.0
+    g.time_elapsed = 0.0
+    g.hit_this_level = true
+    if g.game_mode == types::gm_time_attack() is g.time_limit = types::i2f(60 + n * 15) end
+    return g
+end
+
+;; ── enemies ───────────────────────────────────────────────────────────────
+fn update_boss(mut g: types::Game, i: int, dt: f64, tier: int) -> types::Game is
+    ;; movement
+    g.enemies[i].x += g.enemies[i].speed * g.enemies[i].dir * dt
+    if types::fabs(g.enemies[i].x - g.enemies[i].base_x) > g.enemies[i].range / 2.0 is
+        g.enemies[i].dir = 0.0 - g.enemies[i].dir
+    end
+
+    ;; phases (tier 2+)
+    if tier >= 2 is
+        let r: f64 = types::i2f(g.enemies[i].health) / types::i2f(g.enemies[i].max_health)
+        if r <= 0.5 && g.enemies[i].phase == 1 is
+            g.enemies[i].phase = 2
+            g.enemies[i].speed = g.enemies[i].speed * 1.4
+            g.enemies[i].shoot_interval = g.enemies[i].shoot_interval * 0.65
+        end
+        if tier == 3 && r <= 0.25 && g.enemies[i].phase == 2 is
+            g.enemies[i].phase = 3
+            g.enemies[i].speed = g.enemies[i].speed * 1.3
+            g.enemies[i].shoot_interval = g.enemies[i].shoot_interval * 0.7
+        end
+    end
+
+    ;; shooting
+    g.enemies[i].shoot_timer -= dt
+    if g.enemies[i].shoot_timer <= 0.0 is
+        g.enemies[i].shoot_timer = g.enemies[i].shoot_interval
+        let phase: int = g.enemies[i].phase
+        let mut shots: int = 1
+        if tier == 2 is
+            if phase == 2 is
+                shots = 3
+            else is
+                shots = 2
+            end
+        elsif tier == 3 is
+            if phase == 3 is
+                shots = 5
+            elsif phase == 2 is
+                shots = 3
+            else is
+                shots = 2
+            end
+        end
+        let ex: f64 = g.enemies[i].x
+        let ey: f64 = g.enemies[i].y
+        let mut k: int = 1
+        while k <= shots is
+            let angle: f64 = m::atan2(g.player.y - ey, g.player.x - ex) + (types::i2f(k) - (types::i2f(shots) + 1.0) / 2.0) * 0.28
+            let spd: f64 = 260.0 + types::i2f(tier) * 40.0
+            g.enemies[i].projectiles.push(types::Projectile { x: ex, y: ey, vx: m::cos(angle) * spd, vy: m::sin(angle) * spd, radius: 8.0, life: 4.5 })
+            k += 1
+        end
+        g = util::create_particles(g, ex, ey, 10, 1.0, 0.2, 0.2)
+    end
+
+    ;; projectiles
+    let mut keep: [types::Projectile] = []
+    let mut k: int = 0
+    while k < g.enemies[i].projectiles.len() is
+        let mut pr: types::Projectile = g.enemies[i].projectiles[k]
+        pr.x += pr.vx * dt
+        pr.y += pr.vy * dt
+        pr.life -= dt
+        if pr.life > 0.0 is keep.push(pr) end
+        k += 1
+    end
+    g.enemies[i].projectiles = keep
+    return g
+end
+
+;; the player lands on the boss from above
+fn try_damage_boss(mut g: types::Game, i: int) -> types::Game is
+    let b: types::Enemy = g.enemies[i]
+    let p: types::Player = g.player
+    if p.velocity_y > 0.0 && (p.y + p.height) <= (b.y + 12.0) && util::rect_circle_hit(p.x, p.y, p.width, p.height, b.x, b.y, b.radius) is
+        g.enemies[i].health -= 1
+        g.player.velocity_y = g.player.jump_power * 0.6
+        g = util::create_particles(g, b.x, b.y, 28, 1.0, 0.55, 0.0)
+        g = util::trigger_screen_shake(g, 12.0, 0.35)
+        if g.enemies[i].health <= 0 is
+            g.enemies[i].disabled = true
+            g.score += 500.0 * g.multiplier
+            g = util::create_particles(g, b.x, b.y, 80, 1.0, 1.0, 0.0)
+            g = util::unlock_achievement(g, types::ach_boss_slayer())
+        end
+    end
+    return g
+end
+
+;; ── updateLevel ───────────────────────────────────────────────────────────
+pub fn update_level(mut g: types::Game, dt: f64) -> types::Game is
+    let now: f64 = h2d_gfx::get_time()
+    let mut i: int = 0
+    while i < g.platforms.len() is
+        if g.platforms[i].moving is
+            if g.platforms[i].axis_y is
+                g.platforms[i].y += g.platforms[i].speed * dt
+                if types::fabs(g.platforms[i].y - g.platforms[i].base_y) > g.platforms[i].range / 2.0 is
+                    g.platforms[i].speed = 0.0 - g.platforms[i].speed
+                end
+            else is
+                g.platforms[i].x += g.platforms[i].speed * dt
+                if types::fabs(g.platforms[i].x - g.platforms[i].base_x) > g.platforms[i].range / 2.0 is
+                    g.platforms[i].speed = 0.0 - g.platforms[i].speed
+                end
+            end
+        end
+        if g.platforms[i].rotating is
+            let angle: f64 = now * g.platforms[i].speed
+            g.platforms[i].x = g.platforms[i].center_x + m::cos(angle) * g.platforms[i].radius
+            g.platforms[i].y = g.platforms[i].center_y + m::sin(angle) * g.platforms[i].radius
+        end
+        i += 1
+    end
+
+    ;; falling spikes
+    let screen_h: f64 = h2d_gfx::screen_height() + 0.0
+    i = 0
+    while i < g.falling_spikes.len() is
+        g.falling_spikes[i].y += g.falling_spikes[i].speed * dt
+        if g.falling_spikes[i].y > screen_h + 60.0 is
+            g.falling_spikes[i].y = types::i2f(types::rand_i(0 - 900, 0 - 40))
+        end
+        if !g.player.invincible is
+            let fs: types::FallingSpike = g.falling_spikes[i]
+            if util::rect_hit(g.player.x, g.player.y, g.player.width, g.player.height, fs.x, fs.y, fs.width, fs.height) is
+                g = player::damage_player(g)
+            end
+        end
+        i += 1
+    end
+
+    ;; enemies
+    i = 0
+    while i < g.enemies.len() is
+        let e: types::Enemy = g.enemies[i]
+        if e.disabled is
+            if e.disabled_timer > 0.0 is
+                g.enemies[i].disabled_timer -= dt
+                if g.enemies[i].disabled_timer <= 0.0 is g.enemies[i].disabled = false end
+            end
+        else is
+            if e.kind == types::en_drone() is
+                g.enemies[i].y += e.speed * e.dir * dt
+                if types::fabs(g.enemies[i].y - e.base_y) > e.range / 2.0 is g.enemies[i].dir = 0.0 - e.dir end
+            elsif e.kind == types::en_patrol() is
+                g.enemies[i].x += e.speed * e.dir * dt
+                if types::fabs(g.enemies[i].x - e.base_x) > e.range / 2.0 is g.enemies[i].dir = 0.0 - e.dir end
+            elsif e.kind == types::en_boss() is
+                g = update_boss(g, i, dt, 1)
+            elsif e.kind == types::en_boss2() is
+                g = update_boss(g, i, dt, 2)
+            elsif e.kind == types::en_archon() is
+                g = update_boss(g, i, dt, 3)
+            end
+        end
+        i += 1
+    end
+    return g
+end
+
+;; ── drawing ───────────────────────────────────────────────────────────────
+;; (ox, oy) is where the world origin sits on screen: (-camera.x + shake_x, shake_y).
+
+fn draw_boss(fo: text::Fonts, e: types::Enemy, t: f64, ox: f64, oy: f64) is
+    let r: f64 = types::i2f(e.health) / types::i2f(e.max_health)
+    let glow: f64 = 0.55 + 0.45 * m::sin(t * 4.0)
+    let x: f64 = e.x + ox
+    let y: f64 = e.y + oy
+    let mut bc0: f64 = 1.0
+    let mut bc1: f64 = r * 0.4
+    let mut bc2: f64 = 0.2
+    if e.kind == types::en_archon() is
+        bc1 = r * 0.15
+        bc2 = 0.9
+    elsif e.kind == types::en_boss2() is
+        bc1 = r * 0.3
+        bc2 = 0.4
+    end
+
+    h2d_gfx::draw_circle(x, y, e.radius + 22.0, rgba(bc0, bc1, bc2, 0.18 * glow))
+    h2d_gfx::draw_circle(x, y, e.radius, rgba(bc0, bc1, bc2, 1.0))
+    h2d_gfx::draw_circle_lines(x, y, e.radius, rgba(1.0, 1.0, 1.0, 0.65))
+
+    ;; HP bar
+    let bw: f64 = e.radius * 2.0 + 30.0
+    let bx: f64 = x - bw / 2.0
+    let by: f64 = y - e.radius - 26.0
+    rect(bx, by, bw, 10.0, rgba(0.1, 0.1, 0.1, 0.9))
+    rect(bx, by, bw * r, 10.0, rgba(bc0 * 0.9, 0.1, 0.1, 1.0))
+    rect(bx, by, bw * r, 4.0, rgba(bc0, bc1, bc2, 1.0))
+    rect_line(bx, by, bw, 10.0, rgba(1.0, 1.0, 1.0, 0.8))
+
+    let mut name: string = "STRAZNIK"
+    if e.kind == types::en_archon() is
+        name = "ARCHON"
+    elsif e.kind == types::en_boss2() is
+        name = "CYBER-TYTAN"
+    end
+    text::draw_top(fo, name + "  " + to_string(e.health) + "/" + to_string(e.max_health), bx, by - 17.0, 12, rgba(1.0, 1.0, 1.0, 1.0))
+
+    if e.phase > 1 is
+        text::draw_top(fo, "FAZA " + to_string(e.phase), x - 22.0, y - e.radius - 44.0, 12, rgba(1.0, 0.8, 0.0, 1.0))
+    end
+
+    let mut i: int = 0
+    while i < e.projectiles.len() is
+        let pr: types::Projectile = e.projectiles[i]
+        h2d_gfx::draw_circle(pr.x + ox, pr.y + oy, pr.radius, rgba(1.0, 0.2, 0.2, 1.0))
+        h2d_gfx::draw_circle(pr.x + ox, pr.y + oy, pr.radius + 5.0, rgba(1.0, 0.7, 0.7, 0.35))
+        i += 1
+    end
+end
+
+fn draw_enemy(fo: text::Fonts, e: types::Enemy, t: f64, ox: f64, oy: f64) is
+    let x: f64 = e.x + ox
+    let y: f64 = e.y + oy
+    if e.disabled is
+        h2d_gfx::draw_circle(x, y, e.radius, rgba(0.3, 0.3, 0.3, 1.0))
+        return
+    end
+    if e.kind == types::en_drone() is
+        let gl: f64 = 0.7 + 0.3 * m::sin(t * 5.0 + e.x)
+        h2d_gfx::draw_circle(x, y, e.radius, rgba(1.0, 0.5 * gl, 0.1, 1.0))
+        h2d_gfx::draw_circle(x, y, e.radius + 6.0, rgba(1.0, 0.8, 0.5, 0.3))
+        h2d_gfx::draw_line(x - 7.0, y - 3.0, x + 7.0, y - 3.0, 1.0, rgba(0.0, 0.0, 0.0, 1.0))
+    elsif e.kind == types::en_patrol() is
+        h2d_gfx::draw_circle(x, y, e.radius, rgba(1.0, 0.1, 0.1, 1.0))
+        h2d_gfx::draw_circle(x, y, e.radius + 4.0, rgba(1.0, 0.4, 0.4, 0.25))
+    else is
+        draw_boss(fo, e, t, ox, oy)
+    end
+end
+
+pub fn draw_level(fo: text::Fonts, g: types::Game, ox: f64, oy: f64) is
+    let w: f64 = h2d_gfx::screen_width() + 0.0
+    let h: f64 = h2d_gfx::screen_height() + 0.0
+    let col: [f64] = util::level_colors(g.current_level)
+    let t: f64 = h2d_gfx::get_time()
+    let cam: f64 = g.camera_x
+
+    h2d_gfx::clear_background(rgba(col[0], col[1], col[2], 1.0))
+
+    ;; parallax grid, two layers
+    let g1: h2d_color::Color = rgba(col[3], col[4], col[5], 0.45)
+    let mut x: f64 = types::lmod(0.0 - cam * 0.25, 120.0)
+    while x <= w + 120.0 is
+        h2d_gfx::draw_line(x + ox, oy, x + ox, h + oy, 1.0, g1)
+        x += 120.0
+    end
+    let mut y: f64 = 0.0
+    while y <= h is
+        h2d_gfx::draw_line(ox, y + oy, w + ox, y + oy, 1.0, g1)
+        y += 80.0
+    end
+    let g2: h2d_color::Color = rgba(col[6], col[7], col[8], 0.3)
+    x = types::lmod(0.0 - cam * 0.55, 60.0)
+    while x <= w + 60.0 is
+        h2d_gfx::draw_line(x + ox, oy, x + ox, h + oy, 1.0, g2)
+        x += 60.0
+    end
+    y = 0.0
+    while y <= h is
+        h2d_gfx::draw_line(ox, y + oy, w + ox, y + oy, 1.0, g2)
+        y += 40.0
+    end
+
+    ;; platforms
+    let mut i: int = 0
+    while i < g.platforms.len() is
+        let p: types::Platform = g.platforms[i]
+        let mut br: f64 = 0.5
+        if p.rotating is
+            br = 0.6
+        elsif p.moving is
+            br = 0.8
+        end
+        rect(p.x + ox, p.y + oy, p.width, p.height, rgba(col[9] * br, col[10] * br, col[11] * br, 1.0))
+        rect_line(p.x + ox, p.y + oy, p.width, p.height, rgba(col[9], col[10], col[11], 0.9))
+        h2d_gfx::draw_line(p.x + 1.0 + ox, p.y + oy, p.x + p.width - 1.0 + ox, p.y + oy, 1.0, rgba(col[9], col[10], col[11], 0.55))
+        i += 1
+    end
+
+    ;; static spikes (triangles pointing up)
+    i = 0
+    while i < g.spikes.len() is
+        let s: types::Spike = g.spikes[i]
+        h2d_gfx::draw_triangle(s.x + ox, s.y + s.height + oy, s.x + s.width / 2.0 + ox, s.y + oy, s.x + s.width + ox, s.y + s.height + oy, rgba(1.0, 0.15, 0.15, 1.0))
+        h2d_gfx::draw_triangle_lines(s.x + ox, s.y + s.height + oy, s.x + s.width / 2.0 + ox, s.y + oy, s.x + s.width + ox, s.y + s.height + oy, rgba(1.0, 0.5, 0.5, 0.5))
+        i += 1
+    end
+
+    ;; falling spikes (pointing down)
+    i = 0
+    while i < g.falling_spikes.len() is
+        let s: types::FallingSpike = g.falling_spikes[i]
+        h2d_gfx::draw_triangle(s.x + ox, s.y + oy, s.x + s.width / 2.0 + ox, s.y + s.height + oy, s.x + s.width + ox, s.y + oy, rgba(1.0, 0.45, 0.1, 1.0))
+        h2d_gfx::draw_triangle_lines(s.x + ox, s.y + oy, s.x + s.width / 2.0 + ox, s.y + s.height + oy, s.x + s.width + ox, s.y + oy, rgba(1.0, 0.75, 0.4, 0.5))
+        i += 1
+    end
+
+    ;; data
+    i = 0
+    while i < g.data.len() is
+        let d: types::DataItem = g.data[i]
+        if !d.collected is
+            let pulse: f64 = 0.75 + 0.25 * m::sin(t * 3.0 + d.x * 0.01)
+            h2d_gfx::draw_circle(d.x + 10.0 + ox, d.y + 10.0 + oy, 10.0, rgba(1.0, 1.0, 0.0, pulse))
+            h2d_gfx::draw_circle(d.x + 10.0 + ox, d.y + 10.0 + oy, 5.0, rgba(1.0, 1.0, 0.5, pulse * 0.5))
+            h2d_gfx::draw_circle_lines(d.x + 10.0 + ox, d.y + 10.0 + oy, 14.0, rgba(1.0, 1.0, 1.0, 0.3))
+        end
+        i += 1
+    end
+
+    ;; power-ups
+    i = 0
+    while i < g.powerups.len() is
+        let p: types::Powerup = g.powerups[i]
+        if !p.collected is
+            let bob: f64 = m::sin(t * 4.0 + p.x * 0.02) * 5.0
+            let mut c0: f64 = 1.0
+            let mut c1: f64 = 1.0
+            let mut c2: f64 = 1.0
+            let mut letter: string = "?"
+            if p.kind == types::pw_invincibility() is
+                c0 = 0.3
+                c1 = 0.6
+                letter = "I"
+            elsif p.kind == types::pw_speed() is
+                c1 = 0.2
+                letter = "S"
+            elsif p.kind == types::pw_double_jump() is
+                c0 = 0.2
+                c2 = 0.5
+                letter = "J"
+            else is
+                c0 = 0.9
+                c1 = 0.9
+                c2 = 0.9
+                letter = "H"
+            end
+            h2d_gfx::draw_rounded_rect(p.x + ox, p.y + bob + oy, 22.0, 22.0, 4.0, rgba(c0, c1, c2, 0.9))
+            h2d_gfx::draw_rounded_rect_lines(p.x + ox, p.y + bob + oy, 22.0, 22.0, 4.0, rgba(1.0, 1.0, 1.0, 0.55))
+            text::draw_top(fo, letter, p.x + 6.0 + ox, p.y + 4.0 + bob + oy, 12, rgba(0.0, 0.0, 0.0, 1.0))
+        end
+        i += 1
+    end
+
+    ;; enemies
+    i = 0
+    while i < g.enemies.len() is
+        draw_enemy(fo, g.enemies[i], t, ox, oy)
+        i += 1
+    end
+
+    ;; goal
+    let gp: f64 = 0.6 + 0.4 * m::sin(t * 3.0)
+    rect(g.goal.x + ox, g.goal.y + oy, g.goal.width, g.goal.height, rgba(0.0, gp, 0.0, 1.0))
+    rect_line(g.goal.x + ox, g.goal.y + oy, g.goal.width, g.goal.height, rgba(col[9], col[10], col[11], 0.8))
+    text::draw_top(fo, "CEL", g.goal.x + 6.0 + ox, g.goal.y + 16.0 + oy, 12, rgba(1.0, 1.0, 1.0, 1.0))
+end
+
+;; ── updateGame ────────────────────────────────────────────────────────────
+pub fn update_game(mut g: types::Game, dt: f64) -> types::Game is
+    if g.game_over || g.game_won is return g end
+
+    g.time_elapsed += dt
+    if g.game_mode == types::gm_time_attack() && g.time_elapsed > g.time_limit is
+        g.game_over = true
+        return g
+    end
+
+    g = player::update_player(g, dt)
+    g = update_level(g, dt)
+    g = util::update_screen_shake(g, dt)
+    g = util::update_achievement_notifications(g, dt)
+
+    ;; bosses take damage from stomps
+    let mut i: int = 0
+    while i < g.enemies.len() is
+        if types::is_boss(g.enemies[i].kind) && !g.enemies[i].disabled is
+            g = try_damage_boss(g, i)
+        end
+        i += 1
+    end
+
+    ;; camera with smooth lead
+    let target_x: f64 = g.player.x - (h2d_gfx::screen_width() + 0.0) / 2.0 + 130.0
+    g.camera_x = g.camera_x + (target_x - g.camera_x) * 0.15 * dt * 60.0
+    if g.camera_x < 0.0 is g.camera_x = 0.0 end
+
+    ;; goal
+    if util::rect_hit(g.player.x, g.player.y, g.player.width, g.player.height, g.goal.x, g.goal.y, g.goal.width, g.goal.height) is
+        if g.game_mode == types::gm_endless() is
+            g.current_level = (g.current_level % levels::count()) + 1
+            g = load_level(g, g.current_level)
+            g.player.auto_speed += 20.0
+            g = util::unlock_achievement(g, types::ach_endless_runner())
+        elsif g.current_level < levels::count() is
+            g.current_level += 1
+            if g.current_level > g.highest_level is
+                g.highest_level = g.current_level
+                util::save_all(g)
+            end
+            g = load_level(g, g.current_level)
+        else is
+            g.game_won = true
+            g = util::unlock_achievement(g, types::ach_game_winner())
+            g = util::unlock_achievement(g, types::ach_completionist())
+        end
+    end
+
+    if g.score > g.high_score is
+        g.high_score = g.score
+        util::save_all(g)
+    end
+
+    if g.player.y > (h2d_gfx::screen_height() + 0.0) + 150.0 is
+        g = player::damage_player(g)
+    end
+    return g
+end
+
+;; ── drawGame ──────────────────────────────────────────────────────────────
+pub fn draw_game(fo: text::Fonts, g: types::Game) is
+    let w: f64 = h2d_gfx::screen_width() + 0.0
+    let h: f64 = h2d_gfx::screen_height() + 0.0
+    let col: [f64] = util::level_colors(g.current_level)
+    let acc: h2d_color::Color = rgba(col[9], col[10], col[11], 1.0)
+
+    let sh = util::screen_shake_offset(g)
+    let ox: f64 = 0.0 - g.camera_x + sh.0
+    let oy: f64 = sh.1
+    draw_level(fo, g, ox, oy)
+    player::draw_player(g, ox, oy)
+
+    ;; HUD
+    h2d_gfx::draw_rounded_rect(4.0, 4.0, 190.0, 220.0, 4.0, rgba(0.0, 0.0, 0.0, 0.45))
+    text::draw_top(fo, "Score:  " + to_string(types::floor_i(g.score)), 10.0, 10.0, 12, acc)
+    text::draw_top(fo, "Best:   " + to_string(types::floor_i(g.high_score)), 10.0, 27.0, 12, acc)
+    text::draw_top(fo, "Level:  " + to_string(g.current_level) + " / " + to_string(levels::count()), 10.0, 44.0, 12, acc)
+    let mut lives_str: string = to_string(g.lives)
+    if g.infinite_lives is lives_str = "∞" end
+    text::draw_top(fo, "Lives:  " + lives_str, 10.0, 61.0, 12, acc)
+    text::draw_top(fo, "Mult:  x" + fmt1(g.multiplier), 10.0, 78.0, 12, acc)
+
+    let mut yo: f64 = 97.0
+    if g.player.invincible is
+        text::draw_top(fo, "INVINCIBLE " + fmt1(types::fmax(g.player.invincible_timer, 0.0)) + "s", 10.0, yo, 12, rgba(0.5, 0.7, 1.0, 1.0))
+        yo += 17.0
+    end
+    if g.player.hack_timer > 0.0 is
+        text::draw_top(fo, "HACK CD " + to_string(types::floor_i(g.player.hack_timer) + 1) + "s", 10.0, yo, 12, rgba(0.1, 1.0, 1.0, 1.0))
+        yo += 17.0
+    end
+    if g.player.speed_boost_timer > 0.0 is
+        text::draw_top(fo, "SPEED " + fmt1(g.player.speed_boost_timer) + "s", 10.0, yo, 12, rgba(1.0, 0.3, 1.0, 1.0))
+        yo += 17.0
+    end
+    if g.player.double_jump is
+        text::draw_top(fo, "DBL JUMP!", 10.0, yo, 12, rgba(0.2, 1.0, 0.6, 1.0))
+        yo += 17.0
+    end
+    if g.player.shield is
+        text::draw_top(fo, "TARCZA", 10.0, yo, 12, rgba(0.95, 0.95, 0.95, 1.0))
+        yo += 17.0
+    end
+    if g.game_mode == types::gm_time_attack() is
+        let left: int = types::floor_i(g.time_limit - g.time_elapsed) + 1
+        if left < 10 is
+            text::draw_top(fo, "CZAS: " + to_string(left) + "s", 10.0, yo, 12, rgba(1.0, 0.2, 0.2, 1.0))
+        else is
+            text::draw_top(fo, "CZAS: " + to_string(left) + "s", 10.0, yo, 12, acc)
+        end
+    end
+
+    ;; progress bar
+    let progress: f64 = types::fmin(types::fmax(g.player.x / (g.goal.x + g.goal.width), 0.0), 1.0)
+    h2d_gfx::draw_rounded_rect(10.0, h - 26.0, 200.0, 14.0, 3.0, rgba(0.08, 0.08, 0.08, 0.8))
+    h2d_gfx::draw_rounded_rect(10.0, h - 26.0, 200.0 * progress, 14.0, 3.0, acc)
+    h2d_gfx::draw_rounded_rect_lines(10.0, h - 26.0, 200.0, 14.0, 3.0, rgba(1.0, 1.0, 1.0, 0.55))
+    text::draw_top(fo, to_string(types::floor_i(progress * 100.0)) + "%", 216.0, h - 28.0, 12, rgba(1.0, 1.0, 1.0, 1.0))
+
+    ;; achievement notifications
+    let mut n: int = 0
+    while n < g.notif_text.len() is
+        text::draw_top(fo, g.notif_text[n], 10.0, 230.0 + types::i2f(n) * 20.0, 12, rgba(1.0, 1.0, 0.0, 0.9))
+        n += 1
+    end
+
+    ;; game over / won overlay
+    if g.game_over || g.game_won is
+        rect(0.0, 0.0, w, h, rgba(0.0, 0.0, 0.0, 0.68))
+        if g.game_over is
+            text::draw_top(fo, "GAME OVER", w / 2.0 - 95.0, h / 2.0 - 50.0, 28, rgba(1.0, 0.15, 0.15, 1.0))
+        else is
+            text::draw_top(fo, "WYGRALES!", w / 2.0 - 95.0, h / 2.0 - 55.0, 28, rgba(0.15, 1.0, 0.4, 1.0))
+            text::draw_top(fo, "Rekord: " + to_string(types::floor_i(g.high_score)), w / 2.0 - 80.0, h / 2.0 + 10.0, 17, rgba(1.0, 1.0, 0.0, 1.0))
+        end
+        text::draw_top(fo, "R – restart      Esc – menu", w / 2.0 - 115.0, h / 2.0 + 52.0, 12, rgba(1.0, 1.0, 1.0, 1.0))
+    end
+end
