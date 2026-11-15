@@ -1,0 +1,386 @@
+use "std -> strings" from "str"
+use "bit -> h2d"
+
+;; The Racer — types.h#  (port of the-racer/src/types.rs)
+;;
+;; H# has no `&mut`, Option or enum-with-methods across modules, so:
+;;  * Series / TireCompound / Screen are ints with named getters + helper fns;
+;;  * Option<T> is a flag next to the value (`has_result`, `dnf_driver == 0`, `msg == ""`);
+;;  * every function takes a value and returns the new one (AppState / Team flow through).
+
+;; ── helpers ───────────────────────────────────────────────────────────────
+pub fn rgba(r: f64, g: f64, b: f64, a: f64) -> h2d_color::Color is
+    return h2d_color::color(f2i(r * 255.0 + 0.5), f2i(g * 255.0 + 0.5), f2i(b * 255.0 + 0.5), f2i(a * 255.0 + 0.5))
+end
+
+pub fn f2i(x: f64) -> int is
+    return __builtin_conv_float_to_int(x)
+end
+
+pub fn i2f(n: int) -> f64 is
+    return n + 0.0
+end
+
+pub fn imin(a: int, b: int) -> int is
+    if a < b is return a end
+    return b
+end
+
+pub fn imax(a: int, b: int) -> int is
+    if a > b is return a end
+    return b
+end
+
+pub fn iclamp(v: int, lo: int, hi: int) -> int is
+    if v < lo is return lo end
+    if v > hi is return hi end
+    return v
+end
+
+pub fn fclamp(v: f64, lo: f64, hi: f64) -> f64 is
+    if v < lo is return lo end
+    if v > hi is return hi end
+    return v
+end
+
+;; uniform f64 in [lo, hi)
+pub fn rf(lo: f64, hi: f64) -> f64 is
+    return lo + (hi - lo) * ((h2d_random::range(0, 999999) + 0.0) / 1000000.0)
+end
+
+;; uniform int in [lo, hi)  (Rust's gen_range(lo..hi))
+pub fn ri(lo: int, hi: int) -> int is
+    return h2d_random::range(lo, hi - 1)
+end
+
+;; "{:.1}" for non-negative numbers
+pub fn fmt1(x: f64) -> string is
+    let n: int = f2i(x * 10.0 + 0.5)
+    return to_string(n / 10) + "." + to_string(n % 10)
+end
+
+pub fn pad2(n: int) -> string is
+    return str::pad_start(to_string(n), 2, " ")
+end
+
+;; ── Colors ────────────────────────────────────────────────────────────────
+pub fn c_bg()       -> h2d_color::Color is return rgba(0.04, 0.04, 0.08, 1.0) end
+pub fn c_panel()    -> h2d_color::Color is return rgba(0.08, 0.08, 0.14, 1.0) end
+pub fn c_panel2()   -> h2d_color::Color is return rgba(0.11, 0.11, 0.19, 1.0) end
+pub fn c_accent()   -> h2d_color::Color is return rgba(0.95, 0.15, 0.10, 1.0) end
+pub fn c_gold()     -> h2d_color::Color is return rgba(1.00, 0.80, 0.00, 1.0) end
+pub fn c_silver()   -> h2d_color::Color is return rgba(0.75, 0.75, 0.80, 1.0) end
+pub fn c_bronze()   -> h2d_color::Color is return rgba(0.80, 0.50, 0.20, 1.0) end
+pub fn c_green()    -> h2d_color::Color is return rgba(0.10, 0.90, 0.30, 1.0) end
+pub fn c_blue()     -> h2d_color::Color is return rgba(0.20, 0.60, 1.00, 1.0) end
+pub fn c_text()     -> h2d_color::Color is return rgba(0.90, 0.90, 0.95, 1.0) end
+pub fn c_text_dim() -> h2d_color::Color is return rgba(0.45, 0.50, 0.58, 1.0) end
+pub fn c_border()   -> h2d_color::Color is return rgba(0.18, 0.20, 0.28, 1.0) end
+
+;; colour `c` with a different alpha (0..1), e.g. Color::new(col.r, col.g, col.b, 0.1)
+pub fn alpha(c: h2d_color::Color, a: f64) -> h2d_color::Color is
+    return h2d_color::with_alpha(c, f2i(a * 255.0 + 0.5))
+end
+
+;; ── Series (0..4) ─────────────────────────────────────────────────────────
+pub fn s_f1()    -> int is return 0 end
+pub fn s_indy()  -> int is return 1 end
+pub fn s_fe()    -> int is return 2 end
+pub fn s_wec()   -> int is return 3 end
+pub fn s_gt3()   -> int is return 4 end
+
+pub fn series_name(s: int) -> string is
+    if s == 0 is return "Formula 1 — 2026 Season" end
+    if s == 1 is return "IndyCar Series" end
+    if s == 2 is return "ABB Formula E" end
+    if s == 3 is return "FIA World Endurance Championship" end
+    return "GT3 European Series"
+end
+
+pub fn series_short(s: int) -> string is
+    if s == 0 is return "F1" end
+    if s == 1 is return "IndyCar" end
+    if s == 2 is return "FE" end
+    if s == 3 is return "WEC" end
+    return "GT3"
+end
+
+pub fn series_color(s: int) -> h2d_color::Color is
+    if s == 0 is return c_accent() end
+    if s == 1 is return rgba(0.2, 0.7, 1.0, 1.0) end
+    if s == 2 is return rgba(0.1, 0.9, 0.5, 1.0) end
+    if s == 3 is return rgba(0.9, 0.6, 0.1, 1.0) end
+    return rgba(0.7, 0.2, 0.9, 1.0)
+end
+
+pub fn series_rounds(s: int) -> int is
+    if s == 0 is return 24 end
+    if s == 1 is return 17 end
+    if s == 2 is return 16 end
+    if s == 3 is return 8 end
+    return 12
+end
+
+pub fn pit_stops_required(s: int) -> bool is
+    return s != 2
+end
+
+pub fn has_endurance(s: int) -> bool is
+    return s == 3
+end
+
+;; ── TireCompound (0..4) ───────────────────────────────────────────────────
+pub fn t_soft()   -> int is return 0 end
+pub fn t_medium() -> int is return 1 end
+pub fn t_hard()   -> int is return 2 end
+pub fn t_inter()  -> int is return 3 end
+pub fn t_wet()    -> int is return 4 end
+
+pub fn tire_name(t: int) -> string is
+    if t == 0 is return "SOFT" end
+    if t == 1 is return "MEDIUM" end
+    if t == 2 is return "HARD" end
+    if t == 3 is return "INTER" end
+    return "WET"
+end
+
+pub fn tire_color(t: int) -> h2d_color::Color is
+    if t == 0 is return rgba(0.9, 0.1, 0.1, 1.0) end
+    if t == 1 is return rgba(0.9, 0.8, 0.1, 1.0) end
+    if t == 2 is return rgba(0.85, 0.85, 0.85, 1.0) end
+    if t == 3 is return rgba(0.1, 0.7, 0.1, 1.0) end
+    return rgba(0.1, 0.4, 0.9, 1.0)
+end
+
+pub fn tire_deg_rate(t: int) -> f64 is
+    if t == 0 is return 3.5 end
+    if t == 1 is return 2.0 end
+    if t == 2 is return 1.0 end
+    if t == 3 is return 1.5 end
+    return 1.2
+end
+
+pub fn tire_pace_bonus(t: int) -> f64 is
+    if t == 0 is return 8.0 end
+    if t == 1 is return 4.0 end
+    if t == 2 is return 0.0 end
+    if t == 3 is return 3.0 end
+    return 1.0
+end
+
+;; ── Data structs ──────────────────────────────────────────────────────────
+pub struct Driver is
+    pub name:           string
+    pub nationality:    string
+    pub age:            int
+    pub pace:           int
+    pub consistency:    int
+    pub wet_skill:      int
+    pub tire_mgmt:      int
+    pub experience:     int
+    pub salary:         int
+    pub morale:         int
+    pub contract_years: int
+    pub career_wins:    int      ;; championship wins
+    pub races:          int      ;; races completed
+end
+
+pub fn driver_overall(d: Driver) -> int is
+    return (d.pace + d.consistency + d.wet_skill + d.tire_mgmt + d.experience) / 5
+end
+
+pub fn driver_race_performance(d: Driver, wet: bool) -> f64 is
+    let mut base: f64 = i2f(d.pace) * 0.6 + i2f(d.consistency) * 0.4
+    if wet is base = i2f(d.pace) * 0.4 + i2f(d.wet_skill) * 0.6 end
+    let variance: f64 = rf(0.0 - 8.0, 8.0)
+    let morale_bonus: f64 = i2f(d.morale) * 0.05
+    let exp_bonus: f64 = i2f(d.experience) * 0.04     ;; small edge in tight battles
+    return fclamp(base + variance + morale_bonus + exp_bonus, 0.0, 105.0)
+end
+
+pub struct Car is
+    pub chassis:      int
+    pub engine:       int
+    pub reliability:  int
+    pub tire_deg:     int
+    pub pit_speed:    int
+    pub aero_balance: int     ;; 0 = understeer, 100 = oversteer
+end
+
+pub fn car_performance(c: Car) -> int is
+    return (c.chassis + c.engine + c.reliability) / 3
+end
+
+pub struct RdProject is
+    pub name:     string
+    pub target:   string
+    pub cost:     int
+    pub duration: int
+    pub boost:    int
+end
+
+pub struct Circuit is
+    pub name:          string
+    pub country:       string
+    pub laps:          int
+    pub pit_delta:     f64
+    pub wet_chance:    f64
+    pub overtake_diff: f64
+    pub tire_stress:   f64
+    pub high_speed:    bool    ;; true = rewards high chassis, false = low-speed
+end
+
+pub struct RaceResult is
+    pub round:          int
+    pub circuit:        string
+    pub driver1_pos:    int
+    pub driver2_pos:    int
+    pub driver1_points: int
+    pub driver2_points: int
+    pub fastest_lap:    bool
+    pub dnf_driver:     int        ;; Option<u8>: 0 = none, 1 / 2 = driver
+    pub wet_race:       bool
+    pub pit_stops:      [string]
+end
+
+pub struct Team is
+    pub name:             string
+    pub budget:           int
+    pub driver1:          Driver
+    pub driver2:          Driver
+    pub car:              Car
+    pub rd_projects:      [RdProject]
+    pub standings_points: int
+    pub race_results:     [RaceResult]
+    pub series:           int
+    pub current_round:    int
+end
+
+pub fn weekly_costs(t: Team) -> int is
+    return (t.driver1.salary + t.driver2.salary) / 24 + 500
+end
+
+pub struct OpponentTeam is
+    pub name:     string
+    pub strength: int
+    pub points:   int
+    pub color_r:  f64
+    pub color_g:  f64
+    pub color_b:  f64
+end
+
+pub fn opp_color(o: OpponentTeam) -> h2d_color::Color is
+    return rgba(o.color_r, o.color_g, o.color_b, 1.0)
+end
+
+;; ── Game state ────────────────────────────────────────────────────────────
+pub fn sc_main_menu()      -> int is return 0 end
+pub fn sc_series_select()  -> int is return 1 end
+pub fn sc_team_setup()     -> int is return 2 end
+pub fn sc_dashboard()      -> int is return 3 end
+pub fn sc_roster()         -> int is return 4 end
+pub fn sc_car_dev()        -> int is return 5 end
+pub fn sc_race_weekend()   -> int is return 6 end
+pub fn sc_race_sim()       -> int is return 7 end
+pub fn sc_results()        -> int is return 8 end
+pub fn sc_standings()      -> int is return 9 end
+pub fn sc_contract_market() -> int is return 10 end
+
+pub struct RaceWeekendState is
+    pub practice_done:    bool
+    pub qualifying_done:  bool
+    pub qualifying_pos1:  int
+    pub qualifying_pos2:  int
+    pub strategy1:        int
+    pub strategy2:        int
+    pub pit_lap1:         int
+    pub pit_lap2:         int
+    pub wet:              bool
+    pub sim_progress:     f64
+    pub sim_done:         bool
+    pub has_result:       bool        ;; Option<RaceResult>
+    pub result:           RaceResult
+    pub log:              [string]
+end
+
+pub fn empty_result() -> RaceResult is
+    return RaceResult { round: 0, circuit: "", driver1_pos: 0, driver2_pos: 0, driver1_points: 0, driver2_points: 0, fastest_lap: false, dnf_driver: 0, wet_race: false, pit_stops: [] }
+end
+
+pub fn new_race_state() -> RaceWeekendState is
+    return RaceWeekendState {
+        practice_done: false, qualifying_done: false,
+        qualifying_pos1: 5, qualifying_pos2: 8,
+        strategy1: t_soft(), strategy2: t_medium(),
+        pit_lap1: 20, pit_lap2: 25,
+        wet: false, sim_progress: 0.0, sim_done: false,
+        has_result: false, result: empty_result(), log: [],
+    }
+end
+
+pub fn empty_driver() -> Driver is
+    return Driver { name: "", nationality: "", age: 0, pace: 0, consistency: 0, wet_skill: 0, tire_mgmt: 0, experience: 0, salary: 0, morale: 0, contract_years: 0, career_wins: 0, races: 0 }
+end
+
+pub fn empty_team() -> Team is
+    return Team {
+        name: "", budget: 0, driver1: empty_driver(), driver2: empty_driver(),
+        car: Car { chassis: 0, engine: 0, reliability: 0, tire_deg: 0, pit_speed: 0, aero_balance: 0 },
+        rd_projects: [], standings_points: 0, race_results: [], series: 0, current_round: 0,
+    }
+end
+
+pub struct AppState is
+    pub screen:          int
+    pub has_team:        bool          ;; Option<Team>
+    pub team:            Team
+    pub opponents:       [OpponentTeam]
+    pub circuits:        [Circuit]     ;; rebuilt by main when the series changes
+    pub race_state:      RaceWeekendState
+    pub scroll:          f64
+    pub input_buf:       string
+    pub setup_step:      int
+    pub setup_name:      string
+    pub setup_driver1:   string
+    pub setup_driver2:   string
+    pub msg:             string        ;; Option<(String, f32)>: "" = None
+    pub msg_t:           f64
+    pub has_series:      bool          ;; Option<Series>
+    pub selected_series: int
+    pub has_rd:          bool          ;; Option<usize>
+    pub selected_rd:     int
+    pub tab:             int
+    pub contract_msg:    string        ;; "" = None
+    pub agents:          [Driver]      ;; contract-market list, rolled once per visit (see screens.h#)
+end
+
+pub fn new_app_state() -> AppState is
+    return AppState {
+        screen: sc_main_menu(), has_team: false, team: empty_team(),
+        opponents: [], circuits: [], race_state: new_race_state(),
+        scroll: 0.0, input_buf: "", setup_step: 0,
+        setup_name: "", setup_driver1: "", setup_driver2: "",
+        msg: "", msg_t: 0.0, has_series: false, selected_series: 0,
+        has_rd: false, selected_rd: 0, tab: 0, contract_msg: "", agents: [],
+    }
+end
+
+pub fn show_msg(mut gs: AppState, msg: string) -> AppState is
+    gs.msg = msg
+    gs.msg_t = 3.0
+    return gs
+end
+
+pub fn points_for_pos(pos: int) -> int is
+    if pos == 1 is return 25 end
+    if pos == 2 is return 18 end
+    if pos == 3 is return 15 end
+    if pos == 4 is return 12 end
+    if pos == 5 is return 10 end
+    if pos == 6 is return 8 end
+    if pos == 7 is return 6 end
+    if pos == 8 is return 4 end
+    if pos == 9 is return 2 end
+    if pos == 10 is return 1 end
+    return 0
+end
