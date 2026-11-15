@@ -1,0 +1,161 @@
+mod types
+
+;; The Racer — data.h#  (port of the-racer/src/data.rs)
+
+pub fn default_driver(name: string, nationality: string, pace: int, salary: int) -> types::Driver is
+    return types::Driver {
+        name: name, nationality: nationality,
+        age: types::ri(20, 38),
+        pace: pace,
+        consistency: types::ri(60, 92),
+        wet_skill: types::ri(55, 92),
+        tire_mgmt: types::ri(55, 88),
+        experience: types::ri(30, 85),
+        salary: salary,
+        morale: 50,
+        contract_years: types::ri(1, 4),
+        career_wins: types::ri(0, 20),
+        races: types::ri(30, 200),
+    }
+end
+
+pub fn new_team(name: string, d1: string, d2: string, series: int) -> types::Team is
+    return types::Team {
+        name: name,
+        budget: 50000,
+        driver1: default_driver(d1, "PL", 72, 800),
+        driver2: default_driver(d2, "PL", 68, 600),
+        car: types::Car { chassis: 60, engine: 62, reliability: 65, tire_deg: 60, pit_speed: 65, aero_balance: 50 },
+        rd_projects: [],
+        standings_points: 0,
+        race_results: [],
+        series: series,
+        current_round: 0,
+    }
+end
+
+fn opp(name: string, strength: int, r: f64, g: f64, b: f64) -> types::OpponentTeam is
+    return types::OpponentTeam { name: name, strength: strength, points: 0, color_r: r, color_g: g, color_b: b }
+end
+
+pub fn generate_opponents(series: int) -> [types::OpponentTeam] is
+    let mut v: [types::OpponentTeam] = []
+    if series == 0 is
+        v.push(opp("Red Bull Racing", 95, 0.8, 0.1, 0.1))
+        v.push(opp("Ferrari", 92, 0.9, 0.1, 0.1))
+        v.push(opp("Mercedes", 90, 0.4, 0.4, 0.9))
+        v.push(opp("McLaren", 88, 1.0, 0.6, 0.0))
+        v.push(opp("Aston Martin", 82, 0.0, 0.7, 0.4))
+        v.push(opp("Alpine", 78, 0.0, 0.2, 0.8))
+        v.push(opp("Williams", 72, 0.0, 0.4, 0.8))
+        v.push(opp("Haas", 70, 0.6, 0.6, 0.6))
+        v.push(opp("Kick Sauber", 68, 0.1, 0.8, 0.4))
+        v.push(opp("RB", 71, 0.0, 0.5, 0.9))
+    elsif series == 1 is
+        v.push(opp("Penske", 90, 1.0, 0.1, 0.1))
+        v.push(opp("Ganassi", 88, 0.1, 0.4, 0.9))
+        v.push(opp("Andretti", 85, 0.2, 0.6, 0.8))
+        v.push(opp("Arrow McLaren", 82, 1.0, 0.5, 0.0))
+        v.push(opp("Rahal", 78, 0.3, 0.6, 0.9))
+        v.push(opp("AJ Foyt", 72, 0.9, 0.4, 0.1))
+    elsif series == 2 is
+        v.push(opp("Porsche", 88, 0.8, 0.1, 0.1))
+        v.push(opp("Jaguar", 85, 0.0, 0.6, 0.3))
+        v.push(opp("Nissan", 82, 0.8, 0.1, 0.5))
+        v.push(opp("DS Penske", 80, 0.2, 0.2, 0.8))
+        v.push(opp("Maserati", 78, 0.7, 0.1, 0.1))
+        v.push(opp("Envision", 74, 0.0, 0.5, 0.8))
+    elsif series == 3 is
+        v.push(opp("Toyota Gazoo", 93, 0.9, 0.1, 0.1))
+        v.push(opp("Ferrari AF", 88, 0.9, 0.1, 0.1))
+        v.push(opp("Peugeot", 84, 0.0, 0.3, 0.7))
+        v.push(opp("Porsche LMDh", 86, 0.8, 0.1, 0.1))
+        v.push(opp("BMW M Team", 80, 0.0, 0.2, 0.8))
+    elsif series == 4 is
+        v.push(opp("Ferrari GT3", 85, 0.9, 0.1, 0.1))
+        v.push(opp("Porsche GT3", 84, 0.8, 0.1, 0.1))
+        v.push(opp("BMW M4 GT3", 82, 0.0, 0.2, 0.8))
+        v.push(opp("Aston Vantage", 80, 0.0, 0.6, 0.3))
+        v.push(opp("McLaren GT3", 79, 1.0, 0.5, 0.0))
+        v.push(opp("Lamborghini GT3", 78, 0.9, 0.5, 0.0))
+    end
+    return v
+end
+
+fn circ(name: string, country: string, laps: int, pit_delta: f64, wet: f64, ot: f64, ts: f64, hs: bool) -> types::Circuit is
+    return types::Circuit { name: name, country: country, laps: laps, pit_delta: pit_delta, wet_chance: wet, overtake_diff: ot, tire_stress: ts, high_speed: hs }
+end
+
+pub fn circuits_for(series: int) -> [types::Circuit] is
+    let mut v: [types::Circuit] = []
+    if series == 0 is
+        v.push(circ("Bahrain", "BHR", 57, 22.0, 0.05, 1.1, 1.2, false))
+        v.push(circ("Saudi Arabia", "KSA", 50, 20.0, 0.03, 0.7, 1.1, true))
+        v.push(circ("Australia", "AUS", 58, 23.0, 0.25, 0.9, 1.0, false))
+        v.push(circ("Japan", "JPN", 53, 21.0, 0.35, 0.8, 1.3, true))
+        v.push(circ("China", "CHN", 56, 22.0, 0.20, 1.0, 1.1, false))
+        v.push(circ("Miami", "USA", 57, 21.0, 0.15, 1.2, 1.2, false))
+        v.push(circ("Imola", "ITA", 63, 24.0, 0.30, 0.6, 1.0, false))
+        v.push(circ("Monaco", "MCO", 78, 26.0, 0.25, 0.3, 0.7, false))
+        v.push(circ("Canada", "CAN", 70, 22.0, 0.30, 1.3, 1.0, false))
+        v.push(circ("Spain", "ESP", 66, 21.0, 0.10, 0.8, 1.3, true))
+        v.push(circ("Austria", "AUT", 71, 20.0, 0.30, 1.2, 1.1, true))
+        v.push(circ("Silverstone", "GBR", 52, 21.0, 0.40, 1.1, 1.2, true))
+        v.push(circ("Hungary", "HUN", 70, 22.0, 0.20, 0.7, 1.1, false))
+        v.push(circ("Belgium", "BEL", 44, 21.0, 0.45, 1.0, 1.2, true))
+        v.push(circ("Netherlands", "NLD", 72, 22.0, 0.25, 0.7, 1.2, false))
+        v.push(circ("Monza", "ITA", 53, 22.0, 0.20, 1.4, 0.8, true))
+        v.push(circ("Azerbaijan", "AZE", 51, 20.0, 0.08, 1.3, 0.9, true))
+        v.push(circ("Singapore", "SGP", 61, 24.0, 0.35, 0.6, 1.0, false))
+        v.push(circ("Austin", "USA", 56, 22.0, 0.20, 1.1, 1.2, false))
+        v.push(circ("Mexico City", "MEX", 71, 22.0, 0.10, 1.0, 0.9, true))
+        v.push(circ("São Paulo", "BRA", 71, 22.0, 0.40, 1.1, 1.0, false))
+        v.push(circ("Las Vegas", "USA", 50, 20.0, 0.05, 1.3, 1.0, true))
+        v.push(circ("Qatar", "QAT", 57, 21.0, 0.02, 0.9, 1.5, true))
+        v.push(circ("Abu Dhabi", "UAE", 58, 22.0, 0.02, 0.8, 1.0, false))
+    elsif series == 1 is
+        let mut i: int = 0
+        while i < 17 is
+            v.push(circ("Round " + to_string(i + 1), "USA", 200, 12.0, 0.20, 1.5, 1.0, true))
+            i += 1
+        end
+    elsif series == 2 is
+        let mut i: int = 0
+        while i < 16 is
+            v.push(circ("E-Prix R" + to_string(i + 1), "INT", 30, 0.0, 0.25, 1.1, 0.5, false))
+            i += 1
+        end
+    elsif series == 3 is
+        v.push(circ("Sebring", "USA", 350, 60.0, 0.25, 1.2, 1.4, false))
+        v.push(circ("Portimão", "PRT", 280, 55.0, 0.30, 1.0, 1.2, false))
+        v.push(circ("Spa", "BEL", 210, 55.0, 0.45, 1.1, 1.2, true))
+        v.push(circ("Le Mans", "FRA", 380, 70.0, 0.30, 1.3, 1.0, true))
+        v.push(circ("Monza", "ITA", 300, 50.0, 0.20, 1.4, 0.8, true))
+        v.push(circ("Fuji", "JPN", 260, 55.0, 0.40, 1.0, 1.1, false))
+        v.push(circ("Bahrain", "BHR", 300, 55.0, 0.05, 1.1, 1.2, false))
+        v.push(circ("Qatar", "QAT", 320, 55.0, 0.02, 0.9, 1.3, true))
+    else is
+        let mut i: int = 0
+        while i < 12 is
+            v.push(circ("Round " + to_string(i + 1), "EUR", 100, 30.0, 0.30, 1.1, 1.0, false))
+            i += 1
+        end
+    end
+    return v
+end
+
+;; Free agent drivers available for signing in the contract market.
+pub fn free_agents() -> [types::Driver] is
+    let mut v: [types::Driver] = []
+    v.push(default_driver("Lucas Bauer", "DEU", 80, 1200))
+    v.push(default_driver("Takumi Sato", "JPN", 78, 1000))
+    v.push(default_driver("Carlos Vega", "MEX", 76, 900))
+    v.push(default_driver("Elise Moreau", "FRA", 74, 850))
+    v.push(default_driver("Jack Harrington", "GBR", 82, 1400))
+    v.push(default_driver("Andrei Volkov", "RUS", 73, 800))
+    v.push(default_driver("Priya Sharma", "IND", 77, 950))
+    v.push(default_driver("Björn Lindqvist", "SWE", 75, 875))
+    v.push(default_driver("Omar Al-Rashid", "KSA", 71, 750))
+    v.push(default_driver("Yuki Matsuda", "JPN", 84, 1600))
+    return v
+end
