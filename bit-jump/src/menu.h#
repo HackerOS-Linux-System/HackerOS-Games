@@ -1,2 +1,445 @@
-extern static [c, "sdl2"] is
+use "std -> math" from "m"
+use "std -> strings" from "str"
+use "bit -> h2d"
+
+mod types
+mod util
+mod settings
+mod level
+mod player
+mod levels
+mod text
+
+;; Bit Jump — menu.h#  (port of src/menu.lua)
+
+fn rgba(r: f64, g: f64, b: f64, a: f64) -> h2d_color::Color is
+    return types::rgba(r, g, b, a)
+end
+
+fn pressed(k: int) -> bool is
+    return h2d_input2d::is_key_pressed(k)
+end
+
+fn yellow() -> h2d_color::Color is
+    return rgba(1.0, 1.0, 0.0, 1.0)
+end
+
+fn theme_text(g: types::Game) -> h2d_color::Color is
+    return util::arr_color(util::theme_colors(g.settings.theme), 9, 1.0)
+end
+
+;; ── option lists ──────────────────────────────────────────────────────────
+fn menu_options() -> [string] is
+    return ["Start Game", "Level Select", "Game Modes", "Settings", "Achievements", "Themes", "Credits", "Exit"]
+end
+
+fn pause_options() -> [string] is
+    return ["Wznów", "Ustawienia", "Menu Główne"]
+end
+
+fn mode_options() -> [string] is
+    return ["Normal", "Time Attack", "Endless", "Practice"]
+end
+
+fn theme_options() -> [string] is
+    return ["Dark", "Light", "Neon", "Retro"]
+end
+
+fn credits_text() -> [string] is
+    return [
+        "Bit Jump – inspirowany Geometry Dash",
+        "Kod: [Twoje Imię]",
+        "Silnik: H2D (H# + SDL2), dawniej LÖVE2D",
+        "Wersja: 2.0 – 14 poziomów, 3 bossy",
+        "",
+        "Sterowanie:",
+        "  Strzałki / Space – ruch i skok",
+        "  H – hakowanie wrogów",
+        "  P / Esc – pauza",
+        "",
+        "Dziękuję za grę!",
+    ]
+end
+
+fn ach_description(i: int) -> string is
+    let d: [string] = [
+        "Zhakuj 1 wroga (H w pobliżu)",
+        "Zbierz wszystkie dane na poziomie",
+        "Ukończ pętlę w trybie Endless",
+        "Ukończ wszystkie 14 poziomów",
+        "Osiągnij mnożnik x5",
+        "Zbierz power-up szybkości",
+        "Pokonaj bossa skacząc na niego",
+        "Przejdź poziom bez obrażeń",
+        "Odblokuj wszystkie osiągnięcia",
+    ]
+    return d[i]
+end
+
+;; ── background / title ────────────────────────────────────────────────────
+pub fn draw_menu_background(g: types::Game) is
+    let w: f64 = h2d_gfx::screen_width() + 0.0
+    let h: f64 = h2d_gfx::screen_height() + 0.0
+    let th: [f64] = util::theme_colors(g.settings.theme)
+    h2d_gfx::clear_background(rgba(th[0], th[1], th[2], 1.0))
+    let c: h2d_color::Color = rgba(th[3], th[4], th[5], 0.3)
+    let mut x: f64 = types::lmod(g.menu_time * 15.0, 80.0)
+    while x <= w + 80.0 is
+        h2d_gfx::draw_line(x, 0.0, x, h, 1.0, c)
+        x += 80.0
+    end
+    let mut y: f64 = types::lmod(g.menu_time * 10.0, 60.0)
+    while y <= h + 60.0 is
+        h2d_gfx::draw_line(0.0, y, w, y, 1.0, c)
+        y += 60.0
+    end
+end
+
+fn draw_title(fo: text::Fonts, g: types::Game, logo: h2d_texture::Texture2D, y_pos: f64) is
+    let w: f64 = h2d_gfx::screen_width() + 0.0
+    if h2d_texture::is_valid(logo) is
+        let iw: f64 = logo.width + 0.0
+        let ih: f64 = logo.height + 0.0
+        let scale: f64 = types::fmin(300.0 / iw, 80.0 / ih)
+        h2d_texture::draw_texture_ex(logo, w / 2.0 - iw * scale / 2.0, y_pos, iw * scale, ih * scale, 0.0, 0.0, 0.0, false, false, rgba(1.0, 1.0, 1.0, 1.0))
+    else is
+        let pulse: f64 = 0.9 + 0.1 * m::sin(g.menu_time * 2.0)
+        text::draw_top(fo, "BIT JUMP", w / 2.0 - 80.0, y_pos, 26, rgba(0.0, pulse, pulse, 1.0))
+    end
+end
+
+;; ── screens ───────────────────────────────────────────────────────────────
+pub fn draw_menu(fo: text::Fonts, g: types::Game, logo: h2d_texture::Texture2D) is
+    draw_menu_background(g)
+    draw_title(fo, g, logo, 50.0)
+    let cx: f64 = (h2d_gfx::screen_width() + 0.0) / 2.0 - 80.0
+    let opts: [string] = menu_options()
+    let mut i: int = 0
+    while i < opts.len() is
+        let y: f64 = 170.0 + types::i2f(i) * 42.0
+        if i + 1 == g.selected_menu is
+            text::draw_top(fo, opts[i], cx, y, 15, yellow())
+        else is
+            text::draw_top(fo, opts[i], cx, y, 12, theme_text(g))
+        end
+        i += 1
+    end
+end
+
+pub fn draw_level_select(fo: text::Fonts, g: types::Game) is
+    draw_menu_background(g)
+    let w: f64 = h2d_gfx::screen_width() + 0.0
+    let tc: h2d_color::Color = theme_text(g)
+    text::draw_top(fo, "Wybór Poziomu", w / 2.0 - 100.0, 60.0, 22, tc)
+    let cx: f64 = w / 2.0 - 100.0
+    let n: int = levels::count()
+    let mut i: int = 1
+    while i <= n is
+        let locked: bool = i > g.highest_level
+        let mut state_txt: string = "[ODBLOKOWANY]"
+        if locked is state_txt = "[ZABLOKOWANY]" end
+        let label: string = "Poziom " + str::pad_start(to_string(i), 2, " ") + "  " + state_txt
+        let y: f64 = 120.0 + types::i2f(i - 1) * 32.0
+        if i == g.selected_level is
+            text::draw_top(fo, label, cx, y, 13, yellow())
+        else is
+            text::draw_top(fo, label, cx, y, 12, tc)
+        end
+        i += 1
+    end
+    text::draw_top(fo, "Esc – powrót", cx, 120.0 + types::i2f(n) * 32.0 + 16.0, 12, tc)
+end
+
+pub fn draw_game_modes(fo: text::Fonts, g: types::Game) is
+    draw_menu_background(g)
+    let w: f64 = h2d_gfx::screen_width() + 0.0
+    let cx: f64 = w / 2.0 - 100.0
+    let tc: h2d_color::Color = theme_text(g)
+    text::draw_top(fo, "Tryby Gry", w / 2.0 - 70.0, 80.0, 22, tc)
+    let descs: [string] = [
+        "Normal     – klasyczna gra, 3 życia",
+        "Time Attack – ścig z czasem na każdym poziomie",
+        "Endless    – nieskończona pętla, rosnąca prędkość",
+        "Practice   – nieskończone życia, idealne do nauki",
+    ]
+    let mut i: int = 0
+    while i < descs.len() is
+        let mut c: h2d_color::Color = tc
+        if i + 1 == g.selected_mode is c = yellow() end
+        text::draw_top(fo, descs[i], cx, 180.0 + types::i2f(i) * 55.0, 12, c)
+        i += 1
+    end
+    text::draw_top(fo, "Esc – powrót", cx, 420.0, 12, tc)
+end
+
+pub fn draw_pause(fo: text::Fonts, g: types::Game) is
+    let w: f64 = h2d_gfx::screen_width() + 0.0
+    let h: f64 = h2d_gfx::screen_height() + 0.0
+    h2d_gfx::draw_rectangle(0.0, 0.0, w, h, rgba(0.0, 0.0, 0.0, 0.55))
+    let tc: h2d_color::Color = theme_text(g)
+    text::draw_top(fo, "PAUZA", w / 2.0 - 40.0, 120.0, 24, tc)
+    let cx: f64 = w / 2.0 - 60.0
+    let opts: [string] = pause_options()
+    let mut i: int = 0
+    while i < opts.len() is
+        let mut c: h2d_color::Color = tc
+        if i + 1 == g.selected_pause is c = yellow() end
+        text::draw_top(fo, opts[i], cx, 220.0 + types::i2f(i) * 50.0, 12, c)
+        i += 1
+    end
+end
+
+pub fn draw_achievements(fo: text::Fonts, g: types::Game) is
+    draw_menu_background(g)
+    let w: f64 = h2d_gfx::screen_width() + 0.0
+    let cx: f64 = w / 2.0 - 160.0
+    let tc: h2d_color::Color = theme_text(g)
+    text::draw_top(fo, "Osiągnięcia", w / 2.0 - 80.0, 60.0, 22, tc)
+    let mut i: int = 0
+    while i < types::ach_count() is
+        let unlocked: bool = g.achievements[i]
+        let mut c: h2d_color::Color = rgba(0.5, 0.5, 0.5, 1.0)
+        if i + 1 == g.selected_achievement is
+            c = yellow()
+        elsif unlocked is
+            c = rgba(0.3, 1.0, 0.5, 1.0)
+        end
+        let mut status: string = "✗"
+        if unlocked is status = "✓" end
+        text::draw_top(fo, status + "  " + ach_description(i), cx, 120.0 + types::i2f(i) * 36.0, 12, c)
+        i += 1
+    end
+    text::draw_top(fo, "Esc – powrót", cx, 120.0 + types::i2f(types::ach_count()) * 36.0 + 16.0, 12, tc)
+end
+
+pub fn draw_credits(fo: text::Fonts, g: types::Game) is
+    draw_menu_background(g)
+    let w: f64 = h2d_gfx::screen_width() + 0.0
+    let tc: h2d_color::Color = theme_text(g)
+    text::draw_top(fo, "Kredyty", w / 2.0 - 50.0, 60.0, 22, tc)
+    let lines: [string] = credits_text()
+    let mut i: int = 0
+    while i < lines.len() is
+        text::draw_top(fo, lines[i], w / 2.0 - 180.0, 130.0 + types::i2f(i) * 26.0, 12, tc)
+        i += 1
+    end
+    text::draw_top(fo, "Esc – powrót", w / 2.0 - 60.0, 130.0 + types::i2f(lines.len()) * 26.0 + 16.0, 12, tc)
+end
+
+pub fn draw_themes(fo: text::Fonts, g: types::Game) is
+    draw_menu_background(g)
+    let w: f64 = h2d_gfx::screen_width() + 0.0
+    let cx: f64 = w / 2.0 - 80.0
+    let tc: h2d_color::Color = theme_text(g)
+    text::draw_top(fo, "Motywy", w / 2.0 - 50.0, 80.0, 22, tc)
+    let opts: [string] = theme_options()
+    let mut i: int = 0
+    while i < opts.len() is
+        let mut c: h2d_color::Color = tc
+        if i + 1 == g.selected_theme is c = yellow() end
+        text::draw_top(fo, opts[i], cx, 180.0 + types::i2f(i) * 50.0, 12, c)
+        i += 1
+    end
+    text::draw_top(fo, "Esc – powrót", cx, 440.0, 12, tc)
+end
+
+;; ── update / keys ─────────────────────────────────────────────────────────
+pub fn update_menu(mut g: types::Game, dt: f64) -> types::Game is
+    g.menu_time += dt
+    return g
+end
+
+pub fn start_game(mut g: types::Game, lvl: int) -> types::Game is
+    g.state = types::st_game()
+    g.current_level = lvl
+    g.infinite_lives = g.game_mode == types::gm_practice()
+    g.lives = 3
+    g.score = 0.0
+    g.game_over = false
+    g.game_won = false
+    return level::load_level(g, g.current_level)
+end
+
+;; selection moves with wrap-around: dir -1 / +1 over 1..n
+fn step(sel: int, dir: int, n: int) -> int is
+    let mut s: int = sel + dir
+    if s < 1 is s = n end
+    if s > n is s = 1 end
+    return s
+end
+
+fn to_menu(mut g: types::Game) -> types::Game is
+    g.state = types::st_menu()
+    g.selected_menu = 1
+    return g
+end
+
+fn confirm() -> bool is
+    return pressed(h2d_keys::key_enter()) || pressed(h2d_keys::key_space())
+end
+
+;; handleKeyPressed — one call per frame, acts on the keys pressed this frame
+pub fn handle_key_pressed(mut g: types::Game) -> types::Game is
+    let up: bool = pressed(h2d_keys::key_up())
+    let down: bool = pressed(h2d_keys::key_down())
+    let esc: bool = pressed(h2d_keys::key_escape())
+    let st: int = g.state
+
+    if st == types::st_game() is
+        if pressed(h2d_keys::key_r()) && (g.game_over || g.game_won) is
+            g.infinite_lives = g.game_mode == types::gm_practice()
+            g.lives = 3
+            g = level::load_level(g, g.current_level)
+            g.score = 0.0
+            g.game_over = false
+            g.game_won = false
+        elsif (esc || pressed(h2d_keys::key_p())) && !g.game_over && !g.game_won is
+            g.state = types::st_pause()
+            g.selected_pause = 1
+        end
+        return g
+    end
+
+    if st == types::st_menu() is
+        if up is
+            g.selected_menu = step(g.selected_menu, 0 - 1, 8)
+        elsif down is
+            g.selected_menu = step(g.selected_menu, 1, 8)
+        elsif confirm() is
+            let s: int = g.selected_menu
+            if s == 1 is
+                g = start_game(g, 1)
+            elsif s == 2 is
+                g.state = types::st_level_select()
+                g.selected_level = 1
+            elsif s == 3 is
+                g.state = types::st_game_modes()
+                g.selected_mode = 1
+            elsif s == 4 is
+                g.state = types::st_settings()
+                g.selected_setting = 1
+            elsif s == 5 is
+                g.state = types::st_achievements()
+                g.selected_achievement = 1
+            elsif s == 6 is
+                g.state = types::st_themes()
+                g.selected_theme = 1
+            elsif s == 7 is
+                g.state = types::st_credits()
+            else is
+                g.quit = true
+            end
+        end
+        return g
+    end
+
+    if st == types::st_level_select() is
+        if up is
+            g.selected_level = step(g.selected_level, 0 - 1, levels::count())
+        elsif down is
+            g.selected_level = step(g.selected_level, 1, levels::count())
+        elsif confirm() is
+            if g.selected_level <= g.highest_level is g = start_game(g, g.selected_level) end
+        elsif esc is
+            g = to_menu(g)
+        end
+        return g
+    end
+
+    if st == types::st_game_modes() is
+        if up is
+            g.selected_mode = step(g.selected_mode, 0 - 1, 4)
+        elsif down is
+            g.selected_mode = step(g.selected_mode, 1, 4)
+        elsif confirm() is
+            g.game_mode = g.selected_mode - 1
+            g = start_game(g, 1)
+        elsif esc is
+            g = to_menu(g)
+        end
+        return g
+    end
+
+    if st == types::st_settings() is
+        if up is
+            g.selected_setting = step(g.selected_setting, 0 - 1, settings::option_count())
+        elsif down is
+            g.selected_setting = step(g.selected_setting, 1, settings::option_count())
+        elsif pressed(h2d_keys::key_left()) is
+            g = settings::update_settings(g, false)
+        elsif pressed(h2d_keys::key_right()) is
+            g = settings::update_settings(g, true)
+        elsif confirm() is
+            if g.selected_setting >= 6 is
+                g.state = types::st_rebind()
+                g.rebind_key = g.selected_setting - 6
+            end
+        elsif esc is
+            g = to_menu(g)
+        end
+        return g
+    end
+
+    if st == types::st_rebind() is
+        let code: int = h2d_input2d::key_pressed_code()
+        if code >= 0 is
+            if code != h2d_keys::key_escape() is
+                g.settings.keys[g.rebind_key] = code
+                g = settings::apply_settings(g)
+            end
+            g.state = types::st_settings()
+        end
+        return g
+    end
+
+    if st == types::st_achievements() is
+        if up is
+            g.selected_achievement = step(g.selected_achievement, 0 - 1, types::ach_count())
+        elsif down is
+            g.selected_achievement = step(g.selected_achievement, 1, types::ach_count())
+        elsif esc is
+            g = to_menu(g)
+        end
+        return g
+    end
+
+    if st == types::st_pause() is
+        if up is
+            g.selected_pause = step(g.selected_pause, 0 - 1, 3)
+        elsif down is
+            g.selected_pause = step(g.selected_pause, 1, 3)
+        elsif confirm() is
+            if g.selected_pause == 1 is
+                g.state = types::st_game()
+            elsif g.selected_pause == 2 is
+                g.state = types::st_settings()
+                g.selected_setting = 1
+            else is
+                g = to_menu(g)
+            end
+        elsif esc || pressed(h2d_keys::key_p()) is
+            g.state = types::st_game()
+        end
+        return g
+    end
+
+    if st == types::st_credits() is
+        if esc is g = to_menu(g) end
+        return g
+    end
+
+    if st == types::st_themes() is
+        if up is
+            g.selected_theme = step(g.selected_theme, 0 - 1, 4)
+        elsif down is
+            g.selected_theme = step(g.selected_theme, 1, 4)
+        elsif confirm() is
+            g.settings.theme = g.selected_theme - 1
+            g = settings::apply_settings(g)
+        elsif esc is
+            g = to_menu(g)
+        end
+        return g
+    end
+    return g
 end
