@@ -1,0 +1,59 @@
+[package]
+-> name        => bit-jump
+-> version     => 0.8.0
+-> description => Bit Jump — Geometry-Dash-style auto-runner: 14 levels, 3 bosses, power-ups, achievements. H# + H2D.
+-> authors     => ["HackerOS Team <hackeros068@gmail.com>"]
+-> license     => MIT
+-> lang        => h#
+
+[edition]
+-> edition   => 2026
+-> toolchain => 0.9
+
+[layout]
+-> src => src
+
+[dependecies]
+-> h2d => newest
+
+[commands]
+-> make
+--> run => ./scripts/build.sh build
+--> description => Build libh2d_native.a and compile bit-jump (static) into build/bit-jump
+-> play
+--> run => ./scripts/build.sh run
+--> description => Build and run Bit Jump
+-> check
+--> run => ./scripts/build.sh check
+--> description => Type-check every module with h# check (no SDL needed)
+-> smoke
+--> run => ./scripts/smoke.sh
+--> description => Headless run (SDL dummy driver), 300 frames + screenshot — for CI
+-> bundle
+--> run => ./scripts/bundle.sh
+--> description => dist/bit-jump/: binary + the shared libs it needs + launcher (runs on machines without SDL2_*)
+-> install
+--> run => ./scripts/build.sh install
+--> description => Copy the binary to /usr/share/HackerOS/Scripts/HackerOS-Games/ (needs sudo)
+
+[system-dependencies]
+-> sdl2
+--> pkg-config => sdl2
+--> header => SDL2/SDL.h
+--> lib => SDL2
+--> apt => libsdl2-dev
+--> dnf => SDL2-devel
+--> pacman => sdl2
+--> apk => sdl2-dev
+--> zypper => libSDL2-devel
+--> brew => sdl2
+-> SDL2_gfx
+--> pkg-config => SDL2_gfx
+--> header => SDL2/SDL2_gfxPrimitives.h
+--> lib => SDL2_gfx
+--> apt => libsdl2-gfx-dev
+--> dnf => SDL2_gfx-devel
+--> pacman => sdl2_gfx
+--> apk => sdl2_gfx-dev
+--> zypper => libSDL2_gfx-devel
+--> brew => sdl2_gfx
