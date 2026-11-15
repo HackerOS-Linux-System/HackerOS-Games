@@ -1,0 +1,37 @@
+[package]
+-> name        => the-racer
+-> version     => 0.8.0
+-> description => The Racer — motorsport management simulator (series, drivers, car development, race weekends). H# + H2D.
+-> authors     => ["HackerOS Team <hackeros068@gmail.com>"]
+-> license     => MIT
+-> lang        => h#
+
+[edition]
+-> edition   => 2026
+-> toolchain => 0.9
+
+[layout]
+-> src => src
+
+[dependencies]
+-> h2d => newest
+
+[commands]
+-> make
+--> run => ./scripts/build.sh build
+--> description => Build libh2d_native.a and compile the-racer (static) into build/the-racer
+-> play
+--> run => ./scripts/build.sh run
+--> description => Build and run The Racer
+-> check
+--> run => ./scripts/build.sh check
+--> description => Type-check every module with h# check (no SDL needed)
+-> smoke
+--> run => ./scripts/smoke.sh
+--> description => Headless run (SDL dummy driver), 300 frames + screenshot — for CI
+-> bundle
+--> run => ./scripts/bundle.sh
+--> description => dist/the-racer/: binary + the shared libs it needs + launcher (runs on machines without SDL2_*)
+-> install
+--> run => ./scripts/build.sh install
+--> description => Copy the binary to /usr/share/HackerOS/Scripts/HackerOS-Games/ (needs sudo)
