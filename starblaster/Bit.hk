@@ -1,0 +1,37 @@
+[package]
+-> name        => starblaster
+-> version     => 0.8.0
+-> description => Starblaster — arcade space shooter (waves, boss, heat, graze/combo, Nova Bomb). H# + H2D.
+-> authors     => ["HackerOS Team"]
+-> license     => MIT
+-> lang        => h#
+
+[edition]
+-> edition   => 2026
+-> toolchain => 0.9
+
+[layout]
+-> src => src
+
+[dependecies]
+-> h2d => newest
+
+[commands]
+-> make
+--> run => ./scripts/build.sh build
+--> description => Build libh2d_native.a and compile starblaster (static) into build/starblaster
+-> play
+--> run => ./scripts/build.sh run
+--> description => Build and run Starblaster
+-> check
+--> run => ./scripts/build.sh check
+--> description => Type-check every module with h# check (no SDL needed)
+-> smoke
+--> run => ./scripts/smoke.sh
+--> description => Headless run (SDL dummy driver), 300 frames + screenshot — for CI
+-> bundle
+--> run => ./scripts/bundle.sh
+--> description => dist/starblaster/: binary + the shared libs it needs + launcher (runs on machines without SDL2_*)
+-> install
+--> run => ./scripts/build.sh install
+--> description => Copy the binary to /usr/share/HackerOS/Scripts/HackerOS-Games/ (needs sudo)
