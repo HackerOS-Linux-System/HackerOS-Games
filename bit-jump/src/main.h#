@@ -1,0 +1,88 @@
+use "bit -> h2d"
+
+mod types
+mod util
+mod settings
+mod levels
+mod level
+mod menu
+mod text
+
+;; Bit Jump — main.h#  (port of main.lua + conf.lua)
+;; Lua + LÖVE2D  ->  H# + H2D (SDL2). Geometry-Dash-style auto-runner: 14 levels,
+;; 3 bosses, power-ups, combo multiplier, achievements, 4 game modes.
+;; Headless smoke test:
+;;   SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy H2D_MAX_FRAMES=120 H2D_SCREENSHOT=shot.png ./bit-jump
+
+fn new_game() -> types::Game is
+    return types::Game {
+        state: types::st_menu(), game_over: false, game_won: false,
+        current_level: 1, score: 0.0, lives: 3, infinite_lives: false,
+        high_score: util::load_high_score(), highest_level: util::load_highest_level(),
+        game_mode: types::gm_normal(), time_elapsed: 0.0, time_limit: 0.0,
+        multiplier: 1.0, combo_timer: 0.0, hit_this_level: true,
+        achievements: util::load_achievements(), notif_text: [], notif_timer: [],
+        rebind_key: 0 - 1, gravity: 1000.0, player: types::new_player(),
+        camera_x: 0.0, shake_timer: 0.0, shake_intensity: 0.0, menu_time: 0.0,
+        settings: settings::new_settings(),
+        platforms: [], spikes: [], data: [], enemies: [], powerups: [], falling_spikes: [],
+        goal: types::Goal { x: 1000.0, y: 500.0, width: 50.0, height: 50.0 },
+        selected_menu: 1, selected_pause: 1, selected_mode: 1, selected_level: 1,
+        selected_achievement: 1, selected_theme: 1, selected_setting: 1, quit: false,
+    }
+end
+
+fn main() is
+    let _ok: bool = h2d_gfx::init_window(800, 600, "Bit Jump")
+    h2d_gfx::set_target_fps(60)
+    h2d_gfx::set_window_icon("images/bit-jump.png")
+    let fo: text::Fonts = text::load_fonts()
+    let logo: h2d_texture::Texture2D = h2d_texture::load_texture("images/bit-jump.png")
+
+    ;; applySettings() sets player.shape / gravity / speed; then loadLevel(1)
+    let mut g: types::Game = settings::apply_settings(new_game())
+    g = level::load_level(g, g.current_level)
+
+    while !h2d_gfx::window_should_close() && !g.quit is
+        let mut dt: f64 = h2d_gfx::get_frame_time()
+        if dt > 0.05 is dt = 0.05 end
+
+        ;; LÖVE order: key events, update, draw
+        g = menu::handle_key_pressed(g)
+
+        let st: int = g.state
+        if st == types::st_game() is
+            g = level::update_game(g, dt)
+        elsif st == types::st_menu() || st == types::st_level_select() || st == types::st_game_modes() || st == types::st_themes() || st == types::st_achievements() || st == types::st_credits() || st == types::st_settings() is
+            g = menu::update_menu(g, dt)
+        end
+
+        if st == types::st_game() is
+            level::draw_game(fo, g)
+        elsif st == types::st_menu() is
+            menu::draw_menu(fo, g, logo)
+        elsif st == types::st_level_select() is
+            menu::draw_level_select(fo, g)
+        elsif st == types::st_game_modes() is
+            menu::draw_game_modes(fo, g)
+        elsif st == types::st_settings() || st == types::st_rebind() is
+            ;; (the Lua version drew nothing at all while rebinding a key)
+            menu::draw_menu_background(g)
+            settings::draw_settings(fo, g)
+        elsif st == types::st_pause() is
+            level::draw_game(fo, g)
+            menu::draw_pause(fo, g)
+        elsif st == types::st_achievements() is
+            menu::draw_achievements(fo, g)
+        elsif st == types::st_credits() is
+            menu::draw_credits(fo, g)
+        elsif st == types::st_themes() is
+            menu::draw_themes(fo, g)
+        end
+
+        h2d_gfx::next_frame()
+    end
+
+    text::unload_fonts(fo)
+    h2d_gfx::close_window()
+end
