@@ -1,0 +1,203 @@
+use "std -> math" from "m"
+use "bit -> h2d"
+
+mod types
+
+;; Starblaster — enemy.h#  (port of starblaster/src/enemy.rs)
+
+fn hp_for(kind: int) -> int is
+    if kind == types::et_basic() is return 2 end
+    if kind == types::et_fast() is return 1 end
+    if kind == types::et_tank() is return 8 end
+    if kind == types::et_shooter() is return 3 end
+    if kind == types::et_kamikaze() is return 1 end
+    if kind == types::et_asteroid() is return 5 end
+    return 60
+end
+
+fn speed_for(kind: int) -> f64 is
+    if kind == types::et_basic() is return 80.0 end
+    if kind == types::et_fast() is return 200.0 end
+    if kind == types::et_tank() is return 50.0 end
+    if kind == types::et_shooter() is return 60.0 end
+    if kind == types::et_kamikaze() is return 260.0 end
+    if kind == types::et_asteroid() is return 95.0 end
+    return 40.0
+end
+
+pub fn spawn_enemy(kind: int, x: f64, y: f64) -> types::EnemyData is
+    let hp: int = hp_for(kind)
+    return types::EnemyData {
+        pos: types::v(x, y),
+        vel: types::v(0.0, speed_for(kind)),
+        enemy_type: kind,
+        state: types::st_spawn(),
+        health: hp,
+        max_health: hp,
+        last_action_time: 0.0,
+        angle: 0.0,
+    }
+end
+
+fn shoot_cooldown(kind: int) -> f64 is
+    if kind == types::et_shooter() is return 1.4 end
+    if kind == types::et_boss() is return 0.6 end
+    return 2.0
+end
+
+fn clamp_f(x: f64, lo: f64, hi: f64) -> f64 is
+    return h2d_vec2::clamp_f(x, lo, hi)
+end
+
+fn deg_sin(deg: f64) -> f64 is
+    return m::sin(deg * 3.14159265358979 / 180.0)
+end
+
+;; Updates enemy number `i` of the world (it may also push bullets).
+pub fn update_enemy(mut w: types::World, i: int, dt: f64, now: f64) -> types::World is
+    let kind: int = w.enemies[i].enemy_type
+    let mut spin: f64 = 120.0
+    if kind == types::et_kamikaze() is spin = 400.0 end
+    if kind == types::et_boss() is spin = 60.0 end
+    if kind == types::et_asteroid() is spin = 55.0 end
+    w.enemies[i].angle += dt * spin
+
+    let st: int = w.enemies[i].state
+    let player_pos: h2d_vec2::Vec2 = w.player.pos
+    let r: f64 = types::enemy_radius()
+
+    if st == types::st_spawn() is
+        w.enemies[i].pos.y += w.enemies[i].vel.y * dt * 0.5
+        if w.enemies[i].pos.y > 60.0 is w.enemies[i].state = types::st_cruising() end
+
+    elsif st == types::st_cruising() is
+        w.enemies[i].pos.y += w.enemies[i].vel.y * dt
+        ;; horizontal drift
+        let px: f64 = w.enemies[i].pos.x
+        let mut drift: f64 = m::sin(now * 1.2 + px * 0.01) * 60.0 * dt
+        if kind == types::et_fast() is drift = m::sin(now * 2.5 + px * 0.01) * 160.0 * dt end
+        if kind == types::et_boss() is drift = m::sin(now * 0.8) * 80.0 * dt end
+        w.enemies[i].pos.x = clamp_f(px + drift, r, types::sw() - r)
+
+        ;; attack transitions
+        let d: f64 = types::dist(w.enemies[i].pos, player_pos)
+        let can_shoot: bool = (now - w.enemies[i].last_action_time) > shoot_cooldown(kind)
+        if kind == types::et_kamikaze() && d < 320.0 is
+            w.enemies[i].state = types::st_attacking()
+        elsif (kind == types::et_shooter() || kind == types::et_boss()) && d < 380.0 && can_shoot is
+            let dir: h2d_vec2::Vec2 = types::norm(player_pos.sub(w.enemies[i].pos))
+            let mut scatter: [f64] = [0.0 - 6.0, 0.0, 6.0]
+            let mut spd: f64 = 200.0
+            if kind == types::et_boss() is
+                scatter = [0.0 - 15.0, 0.0 - 7.0, 0.0, 7.0, 15.0]
+                spd = 260.0
+            end
+            let mut k: int = 0
+            while k < scatter.len() is
+                let spread_x: f64 = dir.x + deg_sin(scatter[k])
+                w.bullets.push(types::Bullet {
+                    pos: w.enemies[i].pos,
+                    vel: types::v(spread_x * spd, dir.y * spd),
+                    alive: true,
+                    is_player: false,
+                    damage: 1,
+                    grazed: false,
+                })
+                k += 1
+            end
+            w.enemies[i].last_action_time = now
+        end
+
+        if w.enemies[i].pos.y > types::sh() + r is w.enemies[i].pos.y = 0.0 - r end
+
+    elsif st == types::st_attacking() is
+        ;; kamikaze dive at the player
+        let dir: h2d_vec2::Vec2 = types::norm(player_pos.sub(w.enemies[i].pos))
+        w.enemies[i].vel = types::v(dir.x * 380.0, dir.y * 380.0)
+        w.enemies[i].pos = w.enemies[i].pos.add(w.enemies[i].vel.scale(dt))
+
+    else is
+        ;; retreating
+        w.enemies[i].pos.y -= w.enemies[i].vel.y * dt * 0.6
+        if w.enemies[i].pos.y < 0.0 - r is
+            w.enemies[i].pos.y = 0.0 - r
+            w.enemies[i].state = types::st_cruising()
+        end
+    end
+    return w
+end
+
+;; ── Director ──────────────────────────────────────────────────────────────
+
+fn pick_enemy_type(wave: int, diff: f64) -> int is
+    let roll: f64 = types::rnd()
+    let n: int = types::f2i(roll * 10.0)
+    if wave < 3 is return types::et_basic() end
+    if wave < 5 is
+        if roll < 0.3 is return types::et_fast() end
+        return types::et_basic()
+    end
+    if diff < 1.5 is
+        if roll < 0.4 is return types::et_fast() end
+        if roll < 0.6 is return types::et_asteroid() end
+        return types::et_basic()
+    end
+    if diff < 2.5 is
+        if n <= 3 is return types::et_basic() end
+        if n <= 5 is return types::et_fast() end
+        if n == 6 is return types::et_tank() end
+        if n == 7 is return types::et_shooter() end
+        if n == 8 is return types::et_asteroid() end
+        return types::et_kamikaze()
+    end
+    if n <= 1 is return types::et_basic() end
+    if n <= 3 is return types::et_fast() end
+    if n == 4 is return types::et_tank() end
+    if n == 5 is return types::et_shooter() end
+    if n == 6 is return types::et_kamikaze() end
+    if n <= 8 is return types::et_asteroid() end
+    return types::et_shooter()
+end
+
+pub fn director_tick(mut w: types::World, dt: f64) -> types::World is
+    w.director.spawn_timer -= dt
+    if w.director.spawn_timer > 0.0 is return w end
+
+    ;; only progress the wave when every enemy is cleared
+    if w.enemies.len() == 0 is
+        w.director.wave += 1
+        w.director.kills_in_wave = 0
+        w.director.wave_target = 5 + w.director.wave * 2
+        w.director.difficulty += 0.12
+        let wv: int = w.director.wave
+        let mut msg: string = "WAVE " + to_string(wv)
+        if wv == 1 is
+            msg = "WAVE 1 — INCOMING!"
+        elsif wv % 10 == 0 is
+            msg = "WAVE " + to_string(wv) + " — BOSS WAVE!"
+        elsif wv % 5 == 0 is
+            msg = "WAVE " + to_string(wv) + " — ELITE SQUAD!"
+        end
+        w.director.wave_msg = msg
+        w.director.wave_msg_t = 3.2
+
+        ;; boss every 10 waves
+        if wv % 10 == 0 && !w.director.boss_alive is
+            w.enemies.push(spawn_enemy(types::et_boss(), types::sw() / 2.0, 0.0 - 80.0))
+            w.director.boss_alive = true
+        end
+    end
+
+    let mut rate: f64 = 2.5 / w.director.difficulty
+    if rate < 0.35 is rate = 0.35 end
+    if rate > 2.5 is rate = 2.5 end
+    w.director.spawn_timer = rate
+
+    if w.director.boss_alive is return w end
+
+    let kind: int = pick_enemy_type(w.director.wave, w.director.difficulty)
+    let r: f64 = types::enemy_radius()
+    let x: f64 = types::rf(r, types::sw() - r)
+    w.enemies.push(spawn_enemy(kind, x, 0.0 - r - 10.0))
+    return w
+end
