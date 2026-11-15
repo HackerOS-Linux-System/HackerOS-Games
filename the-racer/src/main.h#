@@ -1,0 +1,92 @@
+use "bit -> h2d"
+
+mod types
+mod data
+mod ui
+mod screens
+mod save
+mod text
+
+;; The Racer — main.h#  (port of the-racer/src/main.rs)
+;; Rust + macroquad -> H# + H2D (SDL2). Motorsport management simulator:
+;; pick a series, name your team, develop the car, run race weekends, win the title.
+;; Headless smoke test:
+;;   SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy H2D_MAX_FRAMES=120 H2D_SCREENSHOT=shot.png ./the-racer
+
+;; The nav bar is drawn AFTER the screen: in Rust it was drawn first and the
+;; screen's clear_background() wiped it, so the tabs were clickable but invisible.
+fn with_nav(fo: text::Fonts, mut gs: types::AppState) -> types::AppState is
+    let nav = ui::bottom_nav(fo, gs)
+    gs = nav.0
+    if nav.1 is
+        gs.screen = types::sc_race_weekend()
+        gs.race_state = types::new_race_state()
+    end
+    return gs
+end
+
+fn main() is
+    let _ok: bool = h2d_gfx::init_window(1024, 768, "The Racer")
+    h2d_gfx::set_target_fps(60)
+    h2d_gfx::set_window_min_size(640, 480)
+    h2d_gfx::set_window_icon("images/The-Racer.png")
+    let fo: text::Fonts = text::load_fonts()
+    let mut gs: types::AppState = types::new_app_state()
+
+    while !h2d_gfx::window_should_close() is
+        ;; message timer
+        if gs.msg != "" is
+            gs.msg_t -= h2d_gfx::get_frame_time()
+            if gs.msg_t <= 0.0 is gs.msg = "" end
+        end
+
+        ;; rebuild circuits when the series changes
+        if gs.has_team is
+            if gs.circuits.len() == 0 || gs.circuits.len() != types::series_rounds(gs.team.series) is
+                gs.circuits = data::circuits_for(gs.team.series)
+            end
+        end
+
+        let sc: int = gs.screen
+        if sc == types::sc_main_menu() is
+            gs = screens::draw_main_menu(fo, gs)
+        elsif sc == types::sc_series_select() is
+            gs = screens::draw_series_select(fo, gs)
+        elsif sc == types::sc_team_setup() is
+            gs = screens::draw_team_setup(fo, gs)
+        elsif sc == types::sc_contract_market() is
+            gs = screens::draw_contract_market(fo, gs)
+        elsif sc == types::sc_dashboard() is
+            if gs.tab == 1 is
+                gs = screens::draw_roster(fo, gs)
+            elsif gs.tab == 2 is
+                gs = screens::draw_car_dev(fo, gs)
+            elsif gs.tab == 3 is
+                gs = screens::draw_standings(fo, gs)
+            else is
+                gs = screens::draw_dashboard(fo, gs)
+            end
+            gs = with_nav(fo, gs)
+        elsif sc == types::sc_roster() is
+            gs = screens::draw_roster(fo, gs)
+            gs = with_nav(fo, gs)
+        elsif sc == types::sc_car_dev() is
+            gs = screens::draw_car_dev(fo, gs)
+            gs = with_nav(fo, gs)
+        elsif sc == types::sc_standings() is
+            gs = screens::draw_standings(fo, gs)
+            gs = with_nav(fo, gs)
+        elsif sc == types::sc_race_weekend() is
+            gs = screens::draw_race_weekend(fo, gs)
+        elsif sc == types::sc_race_sim() is
+            gs = screens::draw_race_simulation(fo, gs)
+        else is
+            gs = screens::draw_results(fo, gs)
+        end
+
+        h2d_gfx::next_frame()
+    end
+
+    text::unload_fonts(fo)
+    h2d_gfx::close_window()
+end
