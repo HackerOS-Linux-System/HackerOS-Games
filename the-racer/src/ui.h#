@@ -1,0 +1,176 @@
+use "bit -> h2d"
+
+mod types
+mod text
+
+;; The Racer — ui.h#  (port of the-racer/src/ui.rs)
+;; Widgets are immediate-mode like in macroquad: they draw and report clicks.
+;; Text y-coordinates are baselines (text::draw), exactly like macroquad's draw_text.
+
+pub fn sw() -> f64 is
+    return h2d_gfx::screen_width() + 0.0
+end
+
+pub fn sh() -> f64 is
+    return h2d_gfx::screen_height() + 0.0
+end
+
+pub fn mouse_clicked() -> bool is
+    return h2d_input2d::is_mouse_button_pressed(h2d_keys::mouse_left())
+end
+
+pub fn hovering(x: f64, y: f64, w: f64, h: f64) -> bool is
+    let m = h2d_input2d::mouse_position()
+    return m.0 >= x && m.0 <= x + w && m.1 >= y && m.1 <= y + h
+end
+
+pub fn panel(x: f64, y: f64, w: f64, h: f64, col: h2d_color::Color) is
+    h2d_gfx::draw_rectangle(x, y, w, h, col)
+    h2d_gfx::draw_rectangle_lines(x, y, w, h, 1.0, types::c_border())
+end
+
+pub fn label(fo: text::Fonts, s: string, x: f64, y: f64, size: int, col: h2d_color::Color) is
+    text::draw(fo, s, x, y, size, col)
+end
+
+pub fn button(fo: text::Fonts, s: string, x: f64, y: f64, w: f64, h: f64, col: h2d_color::Color) -> bool is
+    let hover: bool = hovering(x, y, w, h)
+    let mut a: f64 = 0.10
+    if hover is a = 0.28 end
+    h2d_gfx::draw_rectangle(x, y, w, h, types::alpha(col, a))
+    if hover is
+        h2d_gfx::draw_rectangle_lines(x, y, w, h, 1.5, col)
+    else is
+        h2d_gfx::draw_rectangle_lines(x, y, w, h, 1.5, types::c_border())
+    end
+    let tw: f64 = text::width(fo, s, 18)
+    if hover is
+        text::draw(fo, s, x + (w - tw) / 2.0, y + h / 2.0 + 6.0, 18, col)
+    else is
+        text::draw(fo, s, x + (w - tw) / 2.0, y + h / 2.0 + 6.0, 18, types::c_text())
+    end
+    return hover && mouse_clicked()
+end
+
+pub fn icon_button(fo: text::Fonts, s: string, x: f64, y: f64, w: f64, h: f64, col: h2d_color::Color, enabled: bool) -> bool is
+    if !enabled is
+        h2d_gfx::draw_rectangle(x, y, w, h, types::rgba(0.1, 0.1, 0.1, 0.5))
+        h2d_gfx::draw_rectangle_lines(x, y, w, h, 1.0, types::c_border())
+        let tw: f64 = text::width(fo, s, 15)
+        text::draw(fo, s, x + (w - tw) / 2.0, y + h / 2.0 + 5.0, 15, types::c_text_dim())
+        return false
+    end
+    return button(fo, s, x, y, w, h, col)
+end
+
+pub fn stat_bar(fo: text::Fonts, label_txt: string, val: int, x: f64, y: f64, w: f64, col: h2d_color::Color) is
+    text::draw(fo, label_txt, x, y + 12.0, 13, types::c_text_dim())
+    let bar_x: f64 = x + 100.0
+    let bar_w: f64 = w - 110.0
+    h2d_gfx::draw_rectangle(bar_x, y, bar_w, 14.0, types::c_panel2())
+    h2d_gfx::draw_rectangle(bar_x, y, bar_w * types::i2f(val) / 99.0, 14.0, col)
+    h2d_gfx::draw_rectangle_lines(bar_x, y, bar_w, 14.0, 1.0, types::c_border())
+    text::draw(fo, to_string(val), bar_x + bar_w + 6.0, y + 12.0, 14, types::c_text())
+end
+
+pub fn position_badge(fo: text::Fonts, pos: int, x: f64, y: f64) is
+    let mut col: h2d_color::Color = types::c_text_dim()
+    if pos == 1 is
+        col = types::c_gold()
+    elsif pos == 2 is
+        col = types::c_silver()
+    elsif pos == 3 is
+        col = types::c_bronze()
+    end
+    h2d_gfx::draw_rectangle(x, y, 36.0, 24.0, types::alpha(col, 0.15))
+    h2d_gfx::draw_rectangle_lines(x, y, 36.0, 24.0, 1.0, col)
+    let txt: string = "P" + to_string(pos)
+    let tw: f64 = text::width(fo, txt, 16)
+    text::draw(fo, txt, x + (36.0 - tw) / 2.0, y + 17.0, 16, col)
+end
+
+pub fn tire_badge(fo: text::Fonts, compound: int, x: f64, y: f64) is
+    let col: h2d_color::Color = types::tire_color(compound)
+    h2d_gfx::draw_rectangle(x, y, 52.0, 20.0, types::alpha(col, 0.2))
+    h2d_gfx::draw_rectangle_lines(x, y, 52.0, 20.0, 1.0, col)
+    let nm: string = types::tire_name(compound)
+    let tw: f64 = text::width(fo, nm, 13)
+    text::draw(fo, nm, x + (52.0 - tw) / 2.0, y + 14.0, 13, col)
+end
+
+pub fn section_header(fo: text::Fonts, title: string, y: f64) is
+    h2d_gfx::draw_line(20.0, y, sw() - 20.0, y, 1.0, types::c_border())
+    let tw: f64 = text::width(fo, title, 18)
+    h2d_gfx::draw_rectangle(sw() / 2.0 - tw / 2.0 - 10.0, y - 12.0, tw + 20.0, 22.0, types::c_bg())
+    text::draw(fo, title, sw() / 2.0 - tw / 2.0, y + 6.0, 18, types::c_text_dim())
+end
+
+pub fn topbar(fo: text::Fonts, team: types::Team, circuits: [types::Circuit]) is
+    h2d_gfx::draw_rectangle(0.0, 0.0, sw(), 46.0, types::rgba(0.05, 0.05, 0.09, 0.98))
+    h2d_gfx::draw_line(0.0, 46.0, sw(), 46.0, 1.0, types::c_border())
+    text::draw(fo, team.name, 16.0, 30.0, 22, types::c_accent())
+    let sc: h2d_color::Color = types::series_color(team.series)
+    text::draw(fo, types::series_short(team.series), 16.0 + text::width(fo, team.name, 22) + 10.0, 30.0, 18, sc)
+
+    let budget_str: string = "$" + types::fmt1(types::i2f(team.budget) / 1000.0) + "M"
+    let pts_str: string = to_string(team.standings_points) + " PTS"
+    let mut round_str: string = ""
+    if circuits.len() > 0 && team.current_round < circuits.len() is
+        round_str = "R" + to_string(team.current_round + 1) + "/" + to_string(circuits.len()) + " — " + circuits[team.current_round].name
+    elsif circuits.len() > 0 is
+        round_str = "Season Complete"
+    end
+
+    let bw: f64 = text::width(fo, budget_str, 18)
+    text::draw(fo, budget_str, sw() - bw - 220.0, 30.0, 18, types::c_green())
+    text::draw(fo, pts_str, sw() - 150.0, 30.0, 18, types::c_gold())
+    if round_str != "" is
+        text::draw(fo, round_str, sw() / 2.0 - text::width(fo, round_str, 16) / 2.0, 30.0, 16, types::c_text_dim())
+    end
+end
+
+;; Returns (state, go_race).
+pub fn bottom_nav(fo: text::Fonts, mut gs: types::AppState) -> (types::AppState, bool) is
+    let bh: f64 = 44.0
+    let by: f64 = sh() - bh
+    h2d_gfx::draw_rectangle(0.0, by, sw(), bh, types::rgba(0.05, 0.05, 0.09, 0.98))
+    h2d_gfx::draw_line(0.0, by, sw(), by, 1.0, types::c_border())
+
+    let tabs: [string] = ["DASHBOARD", "ROSTER", "CAR DEV", "STANDINGS", "CONTRACTS", "NEXT RACE"]
+    let tw: f64 = sw() / types::i2f(tabs.len())
+    let mut go_race: bool = false
+
+    let mut i: int = 0
+    while i < tabs.len() is
+        let tx: f64 = types::i2f(i) * tw
+        let active: bool = gs.tab == i
+        if active is
+            h2d_gfx::draw_rectangle(tx, by, tw, bh, types::alpha(types::c_accent(), 0.12))
+            h2d_gfx::draw_line(tx, by, tx + tw, by, 2.0, types::c_accent())
+        end
+        let lw: f64 = text::width(fo, tabs[i], 14)
+        let mut col: h2d_color::Color = types::c_text_dim()
+        if active is
+            col = types::c_accent()
+        elsif i == 5 is
+            col = types::c_green()
+        end
+        text::draw(fo, tabs[i], tx + (tw - lw) / 2.0, by + 28.0, 14, col)
+
+        if hovering(tx, by, tw, bh) && mouse_clicked() is
+            if i == 5 is
+                if gs.has_team && gs.team.current_round < circuits_len(gs) is go_race = true end
+            elsif i == 4 is
+                gs.screen = types::sc_contract_market()
+            else is
+                gs.tab = i
+            end
+        end
+        i += 1
+    end
+    return (gs, go_race)
+end
+
+fn circuits_len(gs: types::AppState) -> int is
+    return gs.circuits.len()
+end
