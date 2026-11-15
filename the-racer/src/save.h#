@@ -1,7 +1,7 @@
 use "std -> strings" from "str"
 use "std -> conv" from "conv"
+use "bit -> h2d"
 
-mod h2d_save
 mod types
 mod data
 
