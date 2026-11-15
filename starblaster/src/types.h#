@@ -1,0 +1,212 @@
+use "bit -> h2d"
+
+;; Starblaster — types.h#  (port of starblaster/src/types.rs)
+;;
+;; Differences forced by the language, not by the game:
+;;  * cross-module constants are zero-argument `pub fn`s (H2D uses the same
+;;    pattern: `h2d_keys::key_space()`), enums are small ints with named getters;
+;;  * `SerVec2` is `h2d_vec2::Vec2` (it already has add / sub / scale / dot / length);
+;;  * H# has no `&mut`: every function takes a value and returns the new one,
+;;    so the whole game lives in one `World` value.
+
+;; ── Constants ─────────────────────────────────────────────────────────────
+pub fn player_speed()   -> f64 is return 350.0 end
+pub fn max_heat()       -> f64 is return 100.0 end
+pub fn heat_per_shot()  -> f64 is return 12.0 end
+pub fn cooling_rate()   -> f64 is return 38.0 end
+pub fn graze_distance() -> f64 is return 32.0 end
+pub fn combo_decay()    -> f64 is return 2.5 end
+pub fn screen_padding() -> f64 is return 22.0 end
+pub fn fire_rate()      -> f64 is return 0.10 end   ;; seconds between shots
+pub fn player_hp()      -> int is return 5 end
+pub fn player_radius()  -> f64 is return 12.0 end
+pub fn bullet_radius()  -> f64 is return 5.0 end
+pub fn enemy_radius()   -> f64 is return 18.0 end
+
+;; macroquad's default window was 800x600; H2D draws into a 800x600 logical
+;; surface (letterboxed), so every coordinate below is the original one.
+pub fn win_w() -> int is return 800 end
+pub fn win_h() -> int is return 600 end
+pub fn sw()    -> f64 is return 800.0 end
+pub fn sh()    -> f64 is return 600.0 end
+
+;; ── Enums (as ints) ───────────────────────────────────────────────────────
+;; EnemyState
+pub fn st_spawn()      -> int is return 0 end
+pub fn st_cruising()   -> int is return 1 end
+pub fn st_attacking()  -> int is return 2 end
+pub fn st_retreating() -> int is return 3 end
+
+;; EnemyType
+pub fn et_basic()    -> int is return 0 end
+pub fn et_fast()     -> int is return 1 end
+pub fn et_tank()     -> int is return 2 end
+pub fn et_shooter()  -> int is return 3 end
+pub fn et_kamikaze() -> int is return 4 end
+pub fn et_asteroid() -> int is return 5 end
+pub fn et_boss()     -> int is return 6 end
+
+;; GameState
+pub fn gs_menu()     -> int is return 0 end
+pub fn gs_playing()  -> int is return 1 end
+pub fn gs_paused()   -> int is return 2 end
+pub fn gs_gameover() -> int is return 3 end
+pub fn gs_victory()  -> int is return 4 end
+
+;; PowerUpType
+pub fn pu_shield()  -> int is return 0 end
+pub fn pu_rapid()   -> int is return 1 end
+pub fn pu_double()  -> int is return 2 end
+pub fn pu_nova()    -> int is return 3 end
+pub fn pu_heal()    -> int is return 4 end
+
+;; ── Small helpers ─────────────────────────────────────────────────────────
+pub fn v(x: f64, y: f64) -> h2d_vec2::Vec2 is
+    return h2d_vec2::vec2(x, y)
+end
+
+;; f64 -> int (truncating), int -> f64
+pub fn f2i(x: f64) -> int is
+    return __builtin_conv_float_to_int(x)
+end
+
+pub fn i2f(n: int) -> f64 is
+    return n + 0.0
+end
+
+;; SerVec2::normalize — zero vector below length 0.001
+pub fn norm(a: h2d_vec2::Vec2) -> h2d_vec2::Vec2 is
+    let l: f64 = a.length()
+    if l < 0.001 is return h2d_vec2::vec2(0.0, 0.0) end
+    return h2d_vec2::vec2(a.x / l, a.y / l)
+end
+
+pub fn dist(a: h2d_vec2::Vec2, b: h2d_vec2::Vec2) -> f64 is
+    return a.distance_to(b)
+end
+
+;; uniform f64 in [0, 1]
+pub fn rnd() -> f64 is
+    return (h2d_random::range(0, 1000000) + 0.0) / 1000000.0
+end
+
+;; uniform f64 in [lo, hi]
+pub fn rf(lo: f64, hi: f64) -> f64 is
+    return lo + (hi - lo) * rnd()
+end
+
+;; ── Structs ───────────────────────────────────────────────────────────────
+pub struct EnemyData is
+    pub pos:              h2d_vec2::Vec2
+    pub vel:              h2d_vec2::Vec2
+    pub enemy_type:       int
+    pub state:            int
+    pub health:           int
+    pub max_health:       int
+    pub last_action_time: f64
+    pub angle:            f64          ;; rotation angle, visual only
+end
+
+pub struct Bullet is
+    pub pos:       h2d_vec2::Vec2
+    pub vel:       h2d_vec2::Vec2
+    pub alive:     bool
+    pub is_player: bool
+    pub damage:    int
+    pub grazed:    bool
+end
+
+pub struct PowerUp is
+    pub pos:      h2d_vec2::Vec2
+    pub kind:     int
+    pub alive:    bool
+    pub lifetime: f64
+end
+
+pub struct PlayerState is
+    pub pos:           h2d_vec2::Vec2
+    pub health:        int
+    pub max_health:    int
+    pub heat:          f64
+    pub overheated:    bool
+    pub score:         int
+    pub high_score:    int
+    pub combo:         int
+    pub combo_timer:   f64
+    pub ulti_energy:   f64
+    pub shots_fired:   int
+    pub shots_hit:     int
+    pub shield:        bool
+    pub rapid_fire:    bool
+    pub rapid_timer:   f64
+    pub double_cannon: bool
+    pub double_timer:  f64
+    pub invincible:    f64             ;; seconds of invincibility after a hit
+    pub last_shot:     f64
+end
+
+pub struct Star is
+    pub pos:   h2d_vec2::Vec2
+    pub speed: f64
+    pub size:  f64
+    pub alpha: f64
+end
+
+;; `wave_msg` is the Option<(String, f32)> of the Rust version:
+;; "" = None, otherwise the text, with `wave_msg_t` seconds left.
+pub struct Director is
+    pub difficulty:    f64
+    pub spawn_timer:   f64
+    pub wave:          int
+    pub kills_in_wave: int
+    pub wave_target:   int
+    pub boss_alive:    bool
+    pub wave_msg:      string
+    pub wave_msg_t:    f64
+end
+
+;; Result of load_game() (Option<GameSave> -> `ok` flag).
+pub struct GameSave is
+    pub ok:         bool
+    pub player:     PlayerState
+    pub enemies:    [EnemyData]
+    pub bullets:    [Bullet]
+    pub difficulty: f64
+    pub wave:       int
+end
+
+;; Everything that used to be separate `let mut` locals in main().
+;; Particles are H2D's own ParticleSystem (see physics.h#).
+pub struct World is
+    pub state:       int
+    pub player:      PlayerState
+    pub enemies:     [EnemyData]
+    pub bullets:     [Bullet]
+    pub powerups:    [PowerUp]
+    pub fx:          h2d_particles::ParticleSystem
+    pub director:    Director
+    pub stars:       [Star]
+    pub star_scroll: f64
+end
+
+;; ── Constructors (new_player / new_director from main.rs) ─────────────────
+pub fn new_player(high_score: int) -> PlayerState is
+    return PlayerState {
+        pos: h2d_vec2::vec2(800.0 / 2.0, 600.0 - 80.0),
+        health: 5, max_health: 5,
+        heat: 0.0, overheated: false,
+        score: 0, high_score: high_score, combo: 1, combo_timer: 0.0,
+        ulti_energy: 0.0, shots_fired: 0, shots_hit: 0,
+        shield: false, rapid_fire: false, rapid_timer: 0.0,
+        double_cannon: false, double_timer: 0.0,
+        invincible: 0.0, last_shot: 0.0,
+    }
+end
+
+pub fn new_director() -> Director is
+    return Director {
+        difficulty: 1.0, spawn_timer: 1.5, wave: 0,
+        kills_in_wave: 0, wave_target: 5, boss_alive: false,
+        wave_msg: "", wave_msg_t: 0.0,
+    }
+end
