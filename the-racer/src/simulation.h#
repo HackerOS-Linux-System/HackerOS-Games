@@ -1,0 +1,219 @@
+use "bit -> h2d"
+
+mod types
+
+;; The Racer — simulation.h#  (port of the-racer/src/simulation.rs)
+
+fn wet_or_dry_tire_bonus(compound: int, wet: bool) -> f64 is
+    if wet is
+        if compound == types::t_inter() || compound == types::t_wet() is return 10.0 end
+        return 0.0 - 16.0
+    end
+    return types::tire_pace_bonus(compound)
+end
+
+fn pit_timing_delta(pit_lap: int, circuit: types::Circuit, series: int) -> f64 is
+    if !types::pit_stops_required(series) is return 0.0 end
+    let ideal: int = circuit.laps / 2
+    let mut delta: int = pit_lap - ideal
+    if delta < 0 is delta = 0 - delta end
+    return 0.0 - (types::i2f(delta) * 0.3)
+end
+
+;; Result of one race: updated team + opponents and the RaceResult.
+pub struct SimOut is
+    pub team:      types::Team
+    pub opponents: [types::OpponentTeam]
+    pub result:    types::RaceResult
+end
+
+pub fn simulate_race(mut team: types::Team, mut opponents: [types::OpponentTeam], rs: types::RaceWeekendState, circuits: [types::Circuit]) -> SimOut is
+    let circuit: types::Circuit = circuits[team.current_round]
+    let wet: bool = rs.wet
+
+    let p1: f64 = types::driver_race_performance(team.driver1, wet)
+    let p2: f64 = types::driver_race_performance(team.driver2, wet)
+    let car_perf: f64 = types::i2f(types::car_performance(team.car))
+
+    ;; aero balance: high-speed circuits reward high aero cars
+    let mut aero_bonus: f64 = (50.0 - types::i2f(team.car.aero_balance)) * 0.03
+    if circuit.high_speed is aero_bonus = (types::i2f(team.car.aero_balance) - 50.0) * 0.05 end
+
+    ;; tire strategy
+    let tire1_bonus: f64 = wet_or_dry_tire_bonus(rs.strategy1, wet)
+    let tire2_bonus: f64 = wet_or_dry_tire_bonus(rs.strategy2, wet)
+
+    ;; pit timing (pit-stop series only)
+    let pit1_timing: f64 = pit_timing_delta(rs.pit_lap1, circuit, team.series)
+    let pit2_timing: f64 = pit_timing_delta(rs.pit_lap2, circuit, team.series)
+
+    ;; tire degradation factor
+    let deg_factor1: f64 = 1.0 - (types::tire_deg_rate(rs.strategy1) * circuit.tire_stress / 99.0)
+    let deg_factor2: f64 = 1.0 - (types::tire_deg_rate(rs.strategy2) * circuit.tire_stress / 99.0)
+    let tire_mgmt_bonus: f64 = types::i2f(team.car.tire_deg) * 0.04
+
+    let total1: f64 = types::fclamp(p1 + car_perf * 0.5 + tire1_bonus + pit1_timing + aero_bonus + deg_factor1 * 5.0 + tire_mgmt_bonus, 0.0, 130.0)
+    let total2: f64 = types::fclamp(p2 + car_perf * 0.5 + tire2_bonus + pit2_timing + aero_bonus + deg_factor2 * 5.0 + tire_mgmt_bonus, 0.0, 130.0)
+
+    ;; DNF
+    let dnf_chance: f64 = types::i2f(100 - team.car.reliability) / 200.0
+    let dnf1: bool = types::rf(0.0, 1.0) < dnf_chance
+    let dnf2: bool = types::rf(0.0, 1.0) < dnf_chance
+    let mut dnf_driver: int = 0
+    if dnf1 is
+        dnf_driver = 1
+    elsif dnf2 is
+        dnf_driver = 2
+    end
+
+    ;; build grid (names + scores, parallel arrays)
+    let mut names: [string] = []
+    let mut scores: [f64] = []
+    names.push(team.driver1.name)
+    scores.push(if dnf1 then 0.0 - 99.0 else total1)
+    names.push(team.driver2.name)
+    scores.push(if dnf2 then 0.0 - 99.0 else total2)
+    let mut k: int = 0
+    while k < opponents.len() is
+        let o: types::OpponentTeam = opponents[k]
+        let b1: f64 = types::i2f(o.strength) + types::rf(0.0 - 14.0, 14.0)
+        let b2: f64 = types::i2f(o.strength) * 0.92 + types::rf(0.0 - 14.0, 14.0)
+        names.push(o.name)
+        scores.push(b1)
+        names.push(o.name + " #2")
+        scores.push(b2)
+        k += 1
+    end
+
+    ;; stable insertion sort, best score first (Rust sort_by is stable)
+    let mut i: int = 1
+    while i < scores.len() is
+        let sn: string = names[i]
+        let ss: f64 = scores[i]
+        let mut j: int = i - 1
+        while j >= 0 && scores[j] < ss is
+            names[j + 1] = names[j]
+            scores[j + 1] = scores[j]
+            j -= 1
+        end
+        names[j + 1] = sn
+        scores[j + 1] = ss
+        i += 1
+    end
+
+    let mut idx1: int = 20
+    let mut idx2: int = 20
+    let mut found1: bool = false
+    let mut found2: bool = false
+    i = 0
+    while i < names.len() is
+        if !found1 && names[i] == team.driver1.name is
+            idx1 = i
+            found1 = true
+        end
+        if !found2 && names[i] == team.driver2.name is
+            idx2 = i
+            found2 = true
+        end
+        i += 1
+    end
+    let pos1: int = idx1 + 1
+    let pos2: int = idx2 + 1
+    let mut pts1: int = 0
+    let mut pts2: int = 0
+    if !dnf1 is pts1 = types::points_for_pos(pos1) end
+    if !dnf2 is pts2 = types::points_for_pos(pos2) end
+    let fl: bool = pos1 == 1 || pos2 == 1
+
+    ;; opponents score
+    k = 0
+    while k < opponents.len() is
+        opponents[k].points += types::ri(0, 22)
+        k += 1
+    end
+
+    ;; budget
+    let prize: int = (pts1 + pts2) * 220 + 2000
+    let mut nb: int = team.budget + prize - types::weekly_costs(team)
+    if nb < 0 is nb = 0 end
+    team.budget = nb
+
+    ;; R&D tick
+    k = 0
+    while k < team.rd_projects.len() is
+        if team.rd_projects[k].duration > 0 is team.rd_projects[k].duration -= 1 end
+        k += 1
+    end
+    k = 0
+    while k < team.rd_projects.len() is
+        if team.rd_projects[k].duration == 0 is
+            let target: string = team.rd_projects[k].target
+            let boost: int = team.rd_projects[k].boost
+            if target == "chassis" is
+                team.car.chassis = types::imin(team.car.chassis + boost, 99)
+            elsif target == "engine" is
+                team.car.engine = types::imin(team.car.engine + boost, 99)
+            elsif target == "reliability" is
+                team.car.reliability = types::imin(team.car.reliability + boost, 99)
+            elsif target == "tire_deg" is
+                team.car.tire_deg = types::imin(team.car.tire_deg + boost, 99)
+            elsif target == "pit_speed" is
+                team.car.pit_speed = types::imin(team.car.pit_speed + boost, 99)
+            elsif target == "aero_balance" is
+                team.car.aero_balance = types::iclamp(team.car.aero_balance + boost, 0, 100)
+            end
+        end
+        k += 1
+    end
+    let mut keep: [types::RdProject] = []
+    k = 0
+    while k < team.rd_projects.len() is
+        if team.rd_projects[k].duration > 0 is keep.push(team.rd_projects[k]) end
+        k += 1
+    end
+    team.rd_projects = keep
+
+    ;; morale
+    let mut md1: int = 0 - 8
+    if pos1 <= 3 is
+        md1 = 15
+    elsif pos1 <= 8 is
+        md1 = 5
+    end
+    let mut md2: int = 0 - 8
+    if pos2 <= 3 is
+        md2 = 15
+    elsif pos2 <= 8 is
+        md2 = 5
+    end
+    team.driver1.morale = types::iclamp(team.driver1.morale + md1, 0 - 100, 100)
+    team.driver2.morale = types::iclamp(team.driver2.morale + md2, 0 - 100, 100)
+
+    ;; driver stats
+    team.driver1.races += 1
+    team.driver2.races += 1
+    if pos1 == 1 is team.driver1.career_wins += 1 end
+    if pos2 == 1 is team.driver2.career_wins += 1 end
+    if team.driver1.experience < 99 is team.driver1.experience += 1 end
+    if team.driver2.experience < 99 is team.driver2.experience += 1 end
+
+    let mut pit_log: [string] = []
+    if types::pit_stops_required(team.series) is
+        pit_log.push("Lap " + types::pad2(rs.pit_lap1) + " — " + team.driver1.name + " pits → " + types::tire_name(rs.strategy1))
+        pit_log.push("Lap " + types::pad2(rs.pit_lap2) + " — " + team.driver2.name + " pits → " + types::tire_name(rs.strategy2))
+        if wet is pit_log.push("Wet conditions — intermediate tires critical") end
+    end
+
+    team.standings_points += pts1 + pts2
+    team.current_round += 1
+
+    let res: types::RaceResult = types::RaceResult {
+        round: team.current_round,
+        circuit: circuit.name,
+        driver1_pos: pos1, driver2_pos: pos2,
+        driver1_points: pts1, driver2_points: pts2,
+        fastest_lap: fl, dnf_driver: dnf_driver, wet_race: wet,
+        pit_stops: pit_log,
+    }
+    return SimOut { team: team, opponents: opponents, result: res }
+end
