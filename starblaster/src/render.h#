@@ -1,0 +1,431 @@
+use "std -> math" from "m"
+use "std -> strings" from "str"
+use "bit -> h2d"
+  
+mod types
+mod text
+
+;; Starblaster — render.h#  (port of starblaster/src/render.rs)
+;; Colours are written as 0..1 floats like in the Rust source (macroquad's
+;; Color::new) and converted by `rgba`. macroquad primitives that H2D lacks
+;; (draw_poly, draw_poly_lines, thick circle outlines) are built from
+;; triangles / thick lines below.
+
+;; ── helpers ───────────────────────────────────────────────────────────────
+
+fn rgba(r: f64, g: f64, b: f64, a: f64) -> h2d_color::Color is
+    return h2d_color::color(types::f2i(r * 255.0 + 0.5), types::f2i(g * 255.0 + 0.5), types::f2i(b * 255.0 + 0.5), types::f2i(a * 255.0 + 0.5))
+end
+
+fn d2r(deg: f64) -> f64 is
+    return deg * 0.017453292519943295
+end
+
+fn tnow() -> f64 is
+    return h2d_gfx::get_time()
+end
+
+fn absf(x: f64) -> f64 is
+    if x < 0.0 is return 0.0 - x end
+    return x
+end
+
+;; macroquad RED
+fn mq_red() -> h2d_color::Color is
+    return rgba(0.90, 0.16, 0.22, 1.0)
+end
+
+;; filled regular polygon, `rot` in degrees
+fn draw_poly(x: f64, y: f64, sides: int, r: f64, rot: f64, c: h2d_color::Color) is
+    let step: f64 = 360.0 / (sides + 0.0)
+    let mut i: int = 0
+    while i < sides is
+        let a1: f64 = d2r(rot + (i + 0.0) * step)
+        let a2: f64 = d2r(rot + (i + 1.0) * step)
+        h2d_gfx::draw_triangle(x, y, x + m::cos(a1) * r, y + m::sin(a1) * r, x + m::cos(a2) * r, y + m::sin(a2) * r, c)
+        i += 1
+    end
+end
+
+fn draw_poly_lines(x: f64, y: f64, sides: int, r: f64, rot: f64, thick: f64, c: h2d_color::Color) is
+    let step: f64 = 360.0 / (sides + 0.0)
+    let mut i: int = 0
+    while i < sides is
+        let a1: f64 = d2r(rot + (i + 0.0) * step)
+        let a2: f64 = d2r(rot + (i + 1.0) * step)
+        h2d_gfx::draw_line(x + m::cos(a1) * r, y + m::sin(a1) * r, x + m::cos(a2) * r, y + m::sin(a2) * r, thick, c)
+        i += 1
+    end
+end
+
+;; circle outline with a thickness (H2D's draw_circle_lines is 1 px only)
+fn ring(x: f64, y: f64, r: f64, thick: f64, c: h2d_color::Color) is
+    draw_poly_lines(x, y, 24 + types::f2i(r / 3.0), r, 0.0, thick, c)
+end
+
+;; health arc around an enemy (draws `frac` of a full circle, clockwise from the top)
+fn draw_arc(cx: f64, cy: f64, r: f64, frac: f64, c: h2d_color::Color) is
+    let steps: int = types::f2i(frac * 40.0)
+    let mut i: int = 0
+    while i < steps is
+        let a1: f64 = d2r(0.0 - 90.0 + (i + 0.0) * 9.0 * frac)
+        let a2: f64 = d2r(0.0 - 90.0 + (i + 1.0) * 9.0 * frac)
+        h2d_gfx::draw_line(cx + m::cos(a1) * r, cy + m::sin(a1) * r, cx + m::cos(a2) * r, cy + m::sin(a2) * r, 2.5, c)
+        i += 1
+    end
+end
+
+;; "{:08}"
+fn pad8(n: int) -> string is
+    return str::pad_start(to_string(n), 8, "0")
+end
+
+;; "{:.1}" for non-negative numbers
+fn fmt1(x: f64) -> string is
+    let n: int = types::f2i(x * 10.0 + 0.5)
+    return to_string(n / 10) + "." + to_string(n % 10)
+end
+
+;; ── player ────────────────────────────────────────────────────────────────
+
+pub fn draw_player(p: types::PlayerState) is
+    let x: f64 = p.pos.x
+    let y: f64 = p.pos.y
+    let r: f64 = types::player_radius()
+    let t: f64 = tnow()
+
+    ;; engine glow
+    let mut glow_a: f64 = 0.3
+    if m::sin(t * 6.0) > 0.0 is glow_a = 0.5 end
+    h2d_gfx::draw_circle(x, y + r * 1.6, r * 0.7, rgba(0.3, 0.6, 1.0, glow_a))
+
+    ;; shield bubble
+    if p.shield is
+        let sa: f64 = 0.25 + absf(m::sin(t * 3.0)) * 0.15
+        h2d_gfx::draw_circle(x, y, r * 2.4, rgba(0.2, 0.7, 1.0, sa))
+        ring(x, y, r * 2.4, 2.0, rgba(0.3, 0.8, 1.0, 0.8))
+    end
+
+    ;; invincibility flash
+    if p.invincible > 0.0 && (types::f2i(t * 12.0) % 2 == 0) is return end
+
+    ;; main hull — triangle pointing up
+    h2d_gfx::draw_triangle(x, y - r * 1.6, x - r * 1.1, y + r * 1.1, x + r * 1.1, y + r * 1.1, rgba(0.2, 0.7, 1.0, 1.0))
+
+    ;; wing accents
+    h2d_gfx::draw_line(x - r, y + r * 0.6, x - r * 1.6, y + r * 1.4, 2.0, rgba(0.6, 0.9, 1.0, 0.9))
+    h2d_gfx::draw_line(x + r, y + r * 0.6, x + r * 1.6, y + r * 1.4, 2.0, rgba(0.6, 0.9, 1.0, 0.9))
+
+    ;; cockpit
+    h2d_gfx::draw_circle(x, y - r * 0.3, r * 0.4, rgba(0.8, 0.95, 1.0, 0.9))
+
+    ;; rapid fire / double cannon indicators
+    if p.rapid_fire is ring(x, y, r * 1.3, 1.5, rgba(1.0, 0.8, 0.0, 0.7)) end
+    if p.double_cannon is ring(x, y, r * 1.7, 1.5, rgba(1.0, 0.4, 0.0, 0.7)) end
+end
+
+;; ── enemies ───────────────────────────────────────────────────────────────
+
+pub fn draw_enemy(e: types::EnemyData) is
+    let x: f64 = e.pos.x
+    let y: f64 = e.pos.y
+    let t: f64 = tnow()
+    let hp_ratio: f64 = (e.health + 0.0) / (e.max_health + 0.0)
+    let er: f64 = types::enemy_radius()
+    let kind: int = e.enemy_type
+
+    ;; spawn animation
+    let mut scale: f64 = 1.0
+    if e.state == types::st_spawn() is
+        scale = absf(m::sin(t * 3.0))
+        if scale > 1.0 is scale = 1.0 end
+    end
+
+    if kind == types::et_basic() is
+        let r: f64 = er * scale
+        draw_poly(x, y, 6, r, e.angle, mq_red())
+        draw_poly_lines(x, y, 6, r + 2.0, e.angle, 1.5, rgba(1.0, 0.4, 0.4, 0.8))
+        h2d_gfx::draw_circle(x, y, r * 0.35, rgba(1.0, 0.9, 0.2, 0.9))
+    elsif kind == types::et_fast() is
+        let r: f64 = er * 0.7 * scale
+        h2d_gfx::draw_triangle(x, y - r * 2.0, x - r * 1.2, y + r * 0.8, x + r * 1.2, y + r * 0.8, rgba(1.0, 0.6, 0.0, 1.0))
+        h2d_gfx::draw_circle(x, y - r * 0.3, r * 0.3, h2d_color::white())
+    elsif kind == types::et_tank() is
+        let r: f64 = er * 1.5 * scale
+        h2d_gfx::draw_circle(x, y, r, rgba(0.5, 0.0, 0.8, 1.0))
+        ring(x, y, r + 3.0, 2.5, rgba(0.8, 0.4, 1.0, 0.7))
+        h2d_gfx::draw_circle(x, y, r * 0.45, rgba(0.9, 0.7, 1.0, 0.9))
+        ;; health ring
+        draw_arc(x, y, r + 5.0, hp_ratio, rgba(0.8, 0.4, 1.0, 0.9))
+    elsif kind == types::et_shooter() is
+        let r: f64 = er * scale
+        draw_poly(x, y, 4, r, e.angle, rgba(0.2, 0.9, 0.9, 1.0))
+        draw_poly_lines(x, y, 4, r + 2.0, e.angle + 45.0, 1.5, rgba(0.4, 1.0, 1.0, 0.7))
+        h2d_gfx::draw_circle(x, y, r * 0.3, rgba(1.0, 0.5, 0.0, 1.0))
+    elsif kind == types::et_kamikaze() is
+        let r: f64 = er * 0.9 * scale
+        let k: f64 = m::sin(t * 8.0) * 0.5 + 0.5
+        draw_poly(x, y, 8, r, e.angle, rgba(1.0, 0.2 + k * 0.5, 0.0, 1.0))
+        h2d_gfx::draw_circle(x, y, r * 0.4, rgba(1.0, 1.0, 0.0, 1.0))
+    elsif kind == types::et_asteroid() is
+        let r: f64 = er * 1.2 * scale
+        draw_poly(x, y, 7, r, e.angle, rgba(0.5, 0.45, 0.4, 1.0))
+        draw_poly_lines(x, y, 7, r + 1.0, e.angle + 25.0, 1.0, rgba(0.7, 0.65, 0.6, 0.5))
+    else is
+        ;; boss
+        let r: f64 = er * 3.0 * scale
+        h2d_gfx::draw_circle(x, y, r, rgba(0.7, 0.0, 0.2, 1.0))
+        ring(x, y, r + 4.0, 3.0, rgba(1.0, 0.1, 0.3, 0.9))
+        ring(x, y, r + 10.0, 1.5, rgba(1.0, 0.4, 0.1, 0.4 + absf(m::sin(t * 2.0)) * 0.3))
+        h2d_gfx::draw_circle(x, y, r * 0.38, rgba(1.0, 0.7, 0.0, 0.95))
+        ;; 4 rotating cannons
+        let mut i: int = 0
+        while i < 4 is
+            let a: f64 = d2r(e.angle + (i + 0.0) * 90.0)
+            h2d_gfx::draw_circle(x + m::cos(a) * r * 0.75, y + m::sin(a) * r * 0.75, 7.0, rgba(1.0, 0.3, 0.0, 0.9))
+            i += 1
+        end
+        ;; HP bar
+        draw_arc(x, y, r + 12.0, hp_ratio, rgba(1.0, 0.1, 0.2, 0.9))
+    end
+
+    ;; damage flash
+    if hp_ratio < 0.35 is
+        let a: f64 = absf(m::sin(t * 10.0)) * 0.4
+        h2d_gfx::draw_circle(x, y, er * 1.2, rgba(1.0, 0.0, 0.0, a))
+    end
+end
+
+pub fn draw_bullet(b: types::Bullet) is
+    let br: f64 = types::bullet_radius()
+    if b.is_player is
+        let mut c: h2d_color::Color = rgba(0.3, 0.9, 1.0, 0.95)
+        if b.damage > 1 is c = rgba(1.0, 0.5, 0.0, 0.95) end
+        h2d_gfx::draw_circle(b.pos.x, b.pos.y, br + 1.0, c)
+        h2d_gfx::draw_circle(b.pos.x, b.pos.y, br * 0.5, h2d_color::white())
+    else is
+        h2d_gfx::draw_circle(b.pos.x, b.pos.y, br + 0.5, rgba(1.0, 0.15, 0.15, 0.95))
+        h2d_gfx::draw_circle(b.pos.x, b.pos.y, br * 0.4, rgba(1.0, 0.7, 0.7, 0.85))
+    end
+end
+
+pub fn draw_powerup(fo: text::Fonts, p: types::PowerUp) is
+    let mut c: h2d_color::Color = rgba(0.0, 1.0, 0.4, 1.0)
+    let mut symbol: string = "+"
+    let mut cr: f64 = 0.0
+    let mut cg: f64 = 1.0
+    let mut cb: f64 = 0.4
+    if p.kind == types::pu_shield() is
+        cr = 0.2
+        cg = 0.6
+        cb = 1.0
+        symbol = "S"
+    elsif p.kind == types::pu_rapid() is
+        cr = 1.0
+        cg = 0.8
+        cb = 0.0
+        symbol = "R"
+    elsif p.kind == types::pu_double() is
+        cr = 1.0
+        cg = 0.4
+        cb = 0.0
+        symbol = "D"
+    elsif p.kind == types::pu_nova() is
+        cr = 0.8
+        cg = 0.0
+        cb = 1.0
+        symbol = "N"
+    end
+    c = rgba(cr, cg, cb, 1.0)
+    let t: f64 = tnow()
+    let bob: f64 = m::sin(t * 3.0) * 4.0
+    let spin: f64 = t * 80.0
+    draw_poly(p.pos.x, p.pos.y + bob, 5, 14.0, spin, rgba(cr, cg, cb, 0.15 + absf(m::sin(t * 2.0)) * 0.1))
+    draw_poly_lines(p.pos.x, p.pos.y + bob, 5, 14.0, spin, 2.0, c)
+    text::draw_centered(fo, symbol, p.pos.x, p.pos.y + bob + 6.0, 18, c)
+end
+
+pub fn draw_starfield(stars: [types::Star], dt: f64, scroll_in: f64) -> f64 is
+    let scroll: f64 = scroll_in + 40.0 * dt
+    let h: f64 = types::sh()
+    let mut i: int = 0
+    while i < stars.len() is
+        let s: types::Star = stars[i]
+        let raw: f64 = s.pos.y + scroll * s.speed
+        let sy: f64 = raw - h * (types::f2i(raw / h) + 0.0)
+        h2d_gfx::draw_circle(s.pos.x, sy, s.size, rgba(0.8, 0.85, 1.0, s.alpha))
+        i += 1
+    end
+    return scroll
+end
+
+;; ── HUD ───────────────────────────────────────────────────────────────────
+
+pub fn draw_hud(fo: text::Fonts, p: types::PlayerState, wave: int, director_diff: f64) is
+    let sw: f64 = types::sw()
+    let sh: f64 = types::sh()
+
+    ;; top bar bg
+    h2d_gfx::draw_rectangle(0.0, 0.0, sw, 44.0, rgba(0.0, 0.0, 0.05, 0.85))
+
+    ;; HP pips
+    let mut i: int = 0
+    while i < p.max_health is
+        let mut c: h2d_color::Color = rgba(0.2, 0.2, 0.2, 0.6)
+        if i < p.health is c = rgba(0.2, 1.0, 0.4, 1.0) end
+        let cx: f64 = 18.0 + (i + 0.0) * 22.0
+        h2d_gfx::draw_circle(cx, 22.0, 8.0, c)
+        ring(cx, 22.0, 9.0, 1.0, rgba(0.3, 0.3, 0.3, 0.5))
+        i += 1
+    end
+
+    ;; heat bar
+    let heat_x: f64 = 180.0
+    let heat_w: f64 = 120.0
+    h2d_gfx::draw_rectangle(heat_x, 12.0, heat_w, 12.0, rgba(0.15, 0.0, 0.0, 0.9))
+    let mut heat_frac: f64 = p.heat / types::max_heat()
+    if heat_frac < 0.0 is heat_frac = 0.0 end
+    if heat_frac > 1.0 is heat_frac = 1.0 end
+    let mut hcol: h2d_color::Color = rgba(0.0, 0.8, 0.2, 1.0)
+    if p.overheated is
+        hcol = rgba(1.0, 0.0, 0.0, 1.0)
+    elsif heat_frac > 0.7 is
+        hcol = rgba(1.0, 0.4, 0.0, 1.0)
+    end
+    h2d_gfx::draw_rectangle(heat_x, 12.0, heat_w * heat_frac, 12.0, hcol)
+    h2d_gfx::draw_rectangle_lines(heat_x, 12.0, heat_w, 12.0, 1.0, rgba(0.3, 0.3, 0.3, 0.6))
+    if p.overheated is
+        text::draw(fo, "OVERHEAT", heat_x + 18.0, 28.0, 10, rgba(1.0, 0.3, 0.3, 1.0))
+    else is
+        text::draw(fo, "HEAT " + to_string(types::f2i(heat_frac * 100.0 + 0.5)) + "%", heat_x + 10.0, 28.0, 10, rgba(0.5, 0.5, 0.5, 0.8))
+    end
+
+    ;; combo
+    if p.combo > 1 is
+        let cc: h2d_color::Color = rgba(1.0, 0.8, 0.0, 1.0)
+        text::draw(fo, "×" + to_string(p.combo), 320.0, 30.0, 26, cc)
+        ;; combo decay bar
+        let mut f: f64 = p.combo_timer / types::combo_decay()
+        if f < 0.0 is f = 0.0 end
+        if f > 1.0 is f = 1.0 end
+        h2d_gfx::draw_rectangle(318.0, 34.0, 60.0 * f, 3.0, cc)
+    end
+
+    ;; score
+    text::draw_centered(fo, pad8(p.score), sw / 2.0, 32.0, 28, h2d_color::white())
+
+    ;; wave
+    text::draw(fo, "WAVE " + to_string(wave), sw - 120.0, 20.0, 18, rgba(0.7, 0.7, 0.9, 1.0))
+    text::draw(fo, "DIF " + fmt1(director_diff), sw - 120.0, 38.0, 12, rgba(0.5, 0.5, 0.7, 0.7))
+
+    ;; high score
+    if p.score == p.high_score && p.score > 0 is
+        text::draw_centered(fo, "★ NEW HIGH SCORE", sw / 2.0, sh - 10.0, 16, rgba(1.0, 0.8, 0.0, 1.0))
+    else is
+        text::draw(fo, "BEST: " + pad8(p.high_score), sw - 160.0, sh - 10.0, 14, rgba(0.5, 0.5, 0.5, 0.7))
+    end
+
+    ;; accuracy
+    let mut acc: int = 0
+    if p.shots_fired > 0 is acc = p.shots_hit * 100 / p.shots_fired end
+    text::draw(fo, "ACC " + to_string(acc) + "%", 16.0, sh - 10.0, 12, rgba(0.5, 0.6, 0.5, 0.7))
+
+    ;; ulti energy
+    let ulti_x: f64 = sw - 80.0
+    let ulti_y: f64 = 52.0
+    let mut uf: f64 = p.ulti_energy / 100.0
+    if uf < 0.0 is uf = 0.0 end
+    if uf > 1.0 is uf = 1.0 end
+    h2d_gfx::draw_rectangle(ulti_x, ulti_y, 64.0, 8.0, rgba(0.1, 0.0, 0.2, 0.8))
+    h2d_gfx::draw_rectangle(ulti_x, ulti_y, 64.0 * uf, 8.0, rgba(0.7, 0.2, 1.0, 0.9))
+    h2d_gfx::draw_rectangle_lines(ulti_x, ulti_y, 64.0, 8.0, 1.0, rgba(0.5, 0.3, 0.6, 0.4))
+    text::draw(fo, "NOVA", ulti_x + 18.0, ulti_y + 20.0, 10, rgba(0.8, 0.5, 1.0, 0.8))
+
+    ;; active buffs
+    let mut bx: f64 = 16.0
+    let by: f64 = sh - 32.0
+    if p.shield is
+        text::draw(fo, "SHIELD", bx, by, 13, rgba(0.3, 0.7, 1.0, 0.9))
+        bx += 60.0
+    end
+    if p.rapid_fire is
+        text::draw(fo, "RAPID " + fmt1(p.rapid_timer) + "s", bx, by, 13, rgba(1.0, 0.8, 0.0, 0.9))
+        bx += 90.0
+    end
+    if p.double_cannon is
+        text::draw(fo, "DOUBLE " + fmt1(p.double_timer) + "s", bx, by, 13, rgba(1.0, 0.4, 0.0, 0.9))
+    end
+end
+
+pub fn draw_wave_msg(fo: text::Fonts, msg: string, alpha: f64) is
+    text::draw_centered(fo, msg, types::sw() / 2.0, types::sh() / 2.0 - 80.0, 42, rgba(1.0, 0.8, 0.2, alpha))
+end
+
+;; ── screens ───────────────────────────────────────────────────────────────
+
+pub fn draw_menu(fo: text::Fonts, high_score: int) is
+    let sw: f64 = types::sw()
+    let sh: f64 = types::sh()
+    h2d_gfx::clear_background(rgba(0.0, 0.0, 0.06, 1.0))
+
+    text::draw_centered(fo, "STARBLASTER", sw / 2.0, sh * 0.30, 72, rgba(0.2, 0.8, 1.0, 1.0))
+    text::draw_centered(fo, "SURVIVE THE VOID", sw / 2.0, sh * 0.30 + 52.0, 20, rgba(0.5, 0.6, 0.8, 0.8))
+
+    ;; controls
+    let info: [string] = [
+        "ARROWS / WASD — Move",
+        "SPACE / Z — Shoot",
+        "X — Nova Bomb (full energy)",
+        "ESC — Pause",
+        "F5 — Quicksave  •  F9 — Quickload",
+    ]
+    let mut i: int = 0
+    while i < info.len() is
+        text::draw_centered(fo, info[i], sw / 2.0, sh * 0.50 + (i + 0.0) * 22.0, 15, rgba(0.6, 0.65, 0.7, 0.85))
+        i += 1
+    end
+
+    let a: f64 = absf(m::sin(tnow() * 2.0)) * 0.5 + 0.5
+    text::draw_centered(fo, "PRESS SPACE OR ENTER TO START", sw / 2.0, sh * 0.80, 20, rgba(0.3, 0.9, 0.5, a))
+
+    if high_score > 0 is
+        text::draw_centered(fo, "BEST: " + pad8(high_score), sw / 2.0, sh * 0.88, 18, rgba(1.0, 0.8, 0.2, 0.9))
+    end
+end
+
+pub fn draw_game_over(fo: text::Fonts, score: int, high_score: int, wave: int, accuracy: int) is
+    let sw: f64 = types::sw()
+    let sh: f64 = types::sh()
+    h2d_gfx::draw_rectangle(0.0, 0.0, sw, sh, rgba(0.0, 0.0, 0.0, 0.72))
+
+    let record: bool = score == high_score && score > 0
+    let mut title: string = "GAME OVER"
+    let mut tc: h2d_color::Color = rgba(1.0, 0.2, 0.2, 1.0)
+    if record is
+        title = "★ NEW RECORD ★"
+        tc = rgba(1.0, 0.8, 0.0, 1.0)
+    end
+    text::draw_centered(fo, title, sw / 2.0, sh * 0.32, 52, tc)
+
+    let stats: [string] = [
+        "SCORE    " + pad8(score),
+        "WAVE     " + to_string(wave),
+        "ACCURACY " + to_string(accuracy) + "%",
+        "BEST     " + pad8(high_score),
+    ]
+    let mut i: int = 0
+    while i < stats.len() is
+        text::draw_centered(fo, stats[i], sw / 2.0, sh * 0.47 + (i + 0.0) * 32.0, 22, rgba(0.85, 0.85, 0.9, 0.95))
+        i += 1
+    end
+
+    text::draw_centered(fo, "SPACE / ENTER — Play Again   •   ESC — Menu", sw / 2.0, sh * 0.78, 16, rgba(0.6, 0.6, 0.7, 0.85))
+end
+
+pub fn draw_pause_screen(fo: text::Fonts) is
+    let sw: f64 = types::sw()
+    let sh: f64 = types::sh()
+    h2d_gfx::draw_rectangle(0.0, 0.0, sw, sh, rgba(0.0, 0.0, 0.0, 0.55))
+    text::draw_centered(fo, "PAUSED", sw / 2.0, sh / 2.0, 58, rgba(0.7, 0.9, 1.0, 1.0))
+    text::draw_centered(fo, "ESC — Resume   •   Q — Quit to Menu", sw / 2.0, sh / 2.0 + 50.0, 18, rgba(0.65, 0.65, 0.75, 0.85))
+end
