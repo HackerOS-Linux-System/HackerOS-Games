@@ -1,0 +1,338 @@
+use "bit -> h2d"
+
+;; Bit Jump — types.h#  (state that used to be Lua globals)
+;;
+;; Lua kept the whole game in global tables; H# has no globals, so everything lives in
+;; one `Game` value that is passed in and returned by every function (like H2D's examples).
+;; Lua string tags become ints: enemy type, power-up type, game mode, game state, shape.
+
+pub fn rgba(r: f64, g: f64, b: f64, a: f64) -> h2d_color::Color is
+    return h2d_color::color(f2i(r * 255.0 + 0.5), f2i(g * 255.0 + 0.5), f2i(b * 255.0 + 0.5), f2i(a * 255.0 + 0.5))
+end
+
+pub fn f2i(x: f64) -> int is
+    return __builtin_conv_float_to_int(x)
+end
+
+pub fn i2f(n: int) -> f64 is
+    return n + 0.0
+end
+
+;; math.floor for any sign
+pub fn floor_i(x: f64) -> int is
+    let n: int = __builtin_conv_float_to_int(x)
+    if (n + 0.0) > x is return n - 1 end
+    return n
+end
+
+;; Lua's `a % m` for m > 0 (result in [0, m))
+pub fn lmod(a: f64, m: f64) -> f64 is
+    return a - m * (floor_i(a / m) + 0.0)
+end
+
+pub fn fabs(x: f64) -> f64 is
+    if x < 0.0 is return 0.0 - x end
+    return x
+end
+
+pub fn fmax(a: f64, b: f64) -> f64 is
+    if a > b is return a end
+    return b
+end
+
+pub fn fmin(a: f64, b: f64) -> f64 is
+    if a < b is return a end
+    return b
+end
+
+;; math.random(lo, hi) — inclusive ints
+pub fn rand_i(lo: int, hi: int) -> int is
+    return h2d_random::range(lo, hi)
+end
+
+;; ── constants (Lua string tags) ───────────────────────────────────────────
+;; enemy.type
+pub fn en_patrol() -> int is return 0 end
+pub fn en_drone()  -> int is return 1 end
+pub fn en_boss()   -> int is return 2 end
+pub fn en_boss2()  -> int is return 3 end
+pub fn en_archon() -> int is return 4 end
+
+;; powerup.type
+pub fn pw_invincibility() -> int is return 0 end
+pub fn pw_speed()         -> int is return 1 end
+pub fn pw_double_jump()   -> int is return 2 end
+pub fn pw_shield()        -> int is return 3 end
+
+;; gameMode
+pub fn gm_normal()      -> int is return 0 end
+pub fn gm_time_attack() -> int is return 1 end
+pub fn gm_endless()     -> int is return 2 end
+pub fn gm_practice()    -> int is return 3 end
+
+;; state
+pub fn st_menu()         -> int is return 0 end
+pub fn st_game()         -> int is return 1 end
+pub fn st_pause()        -> int is return 2 end
+pub fn st_level_select() -> int is return 3 end
+pub fn st_game_modes()   -> int is return 4 end
+pub fn st_settings()     -> int is return 5 end
+pub fn st_achievements() -> int is return 6 end
+pub fn st_themes()       -> int is return 7 end
+pub fn st_credits()      -> int is return 8 end
+pub fn st_rebind()       -> int is return 9 end
+
+;; player shape
+pub fn sh_square()   -> int is return 0 end
+pub fn sh_circle()   -> int is return 1 end
+pub fn sh_triangle() -> int is return 2 end
+
+;; achievements (index into Game.achievements, same order as Lua's achievementList)
+pub fn ach_count() -> int is return 9 end
+pub fn ach_hacker()         -> int is return 0 end
+pub fn ach_data_collector() -> int is return 1 end
+pub fn ach_endless_runner() -> int is return 2 end
+pub fn ach_game_winner()    -> int is return 3 end
+pub fn ach_perfect_run()    -> int is return 4 end
+pub fn ach_speed_demon()    -> int is return 5 end
+pub fn ach_boss_slayer()    -> int is return 6 end
+pub fn ach_no_hit_level()   -> int is return 7 end
+pub fn ach_completionist()  -> int is return 8 end
+
+pub fn ach_name(i: int) -> string is
+    let names: [string] = ["hacker", "data_collector", "endless_runner", "game_winner", "perfect_run", "speed_demon", "boss_slayer", "no_hit_level", "completionist"]
+    return names[i]
+end
+
+;; ── level objects ─────────────────────────────────────────────────────────
+pub struct Platform is
+    pub x: f64
+    pub y: f64
+    pub width: f64
+    pub height: f64
+    pub moving: bool
+    pub speed: f64
+    pub range: f64
+    pub base_x: f64
+    pub base_y: f64
+    pub axis_y: bool
+    pub rotating: bool
+    pub center_x: f64
+    pub center_y: f64
+    pub radius: f64
+end
+
+pub struct Spike is
+    pub x: f64
+    pub y: f64
+    pub width: f64
+    pub height: f64
+end
+
+pub struct DataItem is
+    pub x: f64
+    pub y: f64
+    pub collected: bool
+end
+
+pub struct Projectile is
+    pub x: f64
+    pub y: f64
+    pub vx: f64
+    pub vy: f64
+    pub radius: f64
+    pub life: f64
+end
+
+pub struct Enemy is
+    pub x: f64
+    pub y: f64
+    pub radius: f64
+    pub speed: f64
+    pub dir: f64
+    pub range: f64
+    pub base_x: f64
+    pub base_y: f64
+    pub kind: int
+    pub disabled: bool
+    pub disabled_timer: f64
+    pub health: int
+    pub max_health: int
+    pub shoot_timer: f64
+    pub shoot_interval: f64
+    pub burst_count: int
+    pub phase: int
+    pub projectiles: [Projectile]
+end
+
+pub struct Powerup is
+    pub x: f64
+    pub y: f64
+    pub kind: int
+    pub collected: bool
+end
+
+pub struct FallingSpike is
+    pub x: f64
+    pub y: f64
+    pub width: f64
+    pub height: f64
+    pub speed: f64
+end
+
+pub struct Goal is
+    pub x: f64
+    pub y: f64
+    pub width: f64
+    pub height: f64
+end
+
+pub struct Level is
+    pub platforms: [Platform]
+    pub spikes: [Spike]
+    pub data: [DataItem]
+    pub enemies: [Enemy]
+    pub powerups: [Powerup]
+    pub falling_spikes: [FallingSpike]
+    pub goal: Goal
+end
+
+;; constructors used by the generated levels.h#
+pub fn plat(x: f64, y: f64, w: f64, h: f64) -> Platform is
+    return Platform { x: x, y: y, width: w, height: h, moving: false, speed: 0.0, range: 0.0, base_x: 0.0, base_y: 0.0, axis_y: false, rotating: false, center_x: 0.0, center_y: 0.0, radius: 0.0 }
+end
+
+pub fn plat_moving(x: f64, y: f64, w: f64, h: f64, speed: f64, range: f64, base_x: f64, base_y: f64, axis_y: bool) -> Platform is
+    return Platform { x: x, y: y, width: w, height: h, moving: true, speed: speed, range: range, base_x: base_x, base_y: base_y, axis_y: axis_y, rotating: false, center_x: 0.0, center_y: 0.0, radius: 0.0 }
+end
+
+pub fn plat_rot(x: f64, y: f64, w: f64, h: f64, speed: f64, cx: f64, cy: f64, radius: f64) -> Platform is
+    return Platform { x: x, y: y, width: w, height: h, moving: false, speed: speed, range: 0.0, base_x: 0.0, base_y: 0.0, axis_y: false, rotating: true, center_x: cx, center_y: cy, radius: radius }
+end
+
+pub fn spike(x: f64, y: f64, w: f64, h: f64) -> Spike is
+    return Spike { x: x, y: y, width: w, height: h }
+end
+
+pub fn dat(x: f64, y: f64) -> DataItem is
+    return DataItem { x: x, y: y, collected: false }
+end
+
+pub fn enemy(kind: int, x: f64, y: f64, radius: f64, speed: f64, dir: f64, range: f64, base_x: f64, base_y: f64) -> Enemy is
+    return Enemy { x: x, y: y, radius: radius, speed: speed, dir: dir, range: range, base_x: base_x, base_y: base_y, kind: kind,
+        disabled: false, disabled_timer: 0.0, health: 0, max_health: 0, shoot_timer: 0.0, shoot_interval: 0.0, burst_count: 0, phase: 1, projectiles: [] }
+end
+
+pub fn boss(kind: int, x: f64, y: f64, radius: f64, speed: f64, dir: f64, range: f64, base_x: f64, hp: int, shoot_timer: f64, shoot_interval: f64, phase: int) -> Enemy is
+    return Enemy { x: x, y: y, radius: radius, speed: speed, dir: dir, range: range, base_x: base_x, base_y: 0.0, kind: kind,
+        disabled: false, disabled_timer: 0.0, health: hp, max_health: hp, shoot_timer: shoot_timer, shoot_interval: shoot_interval, burst_count: 0, phase: phase, projectiles: [] }
+end
+
+pub fn powerup(x: f64, y: f64, kind: int) -> Powerup is
+    return Powerup { x: x, y: y, kind: kind, collected: false }
+end
+
+pub fn fspike(x: f64, y: f64, w: f64, h: f64, speed: f64) -> FallingSpike is
+    return FallingSpike { x: x, y: y, width: w, height: h, speed: speed }
+end
+
+pub fn is_boss(kind: int) -> bool is
+    return kind == 2 || kind == 3 || kind == 4
+end
+
+;; ── player / particles ────────────────────────────────────────────────────
+pub struct Particle is
+    pub x: f64
+    pub y: f64
+    pub vx: f64
+    pub vy: f64
+    pub life: f64
+    pub max_life: f64
+    pub r: f64
+    pub g: f64
+    pub b: f64
+end
+
+pub struct Player is
+    pub x: f64
+    pub y: f64
+    pub width: f64
+    pub height: f64
+    pub speed: f64
+    pub auto_speed: f64
+    pub jump_power: f64
+    pub velocity_y: f64
+    pub is_jumping: bool
+    pub double_jump: bool
+    pub invincible: bool
+    pub invincible_timer: f64
+    pub hack_timer: f64
+    pub speed_boost_timer: f64
+    pub shield: bool
+    pub particles: [Particle]
+    pub shape: int
+    pub hit_flash_timer: f64
+end
+
+pub fn new_player() -> Player is
+    return Player { x: 50.0, y: 500.0, width: 40.0, height: 40.0, speed: 300.0, auto_speed: 200.0, jump_power: 0.0 - 500.0,
+        velocity_y: 0.0, is_jumping: false, double_jump: false, invincible: false, invincible_timer: 0.0, hack_timer: 0.0,
+        speed_boost_timer: 0.0, shield: false, particles: [], shape: 0, hit_flash_timer: 0.0 }
+end
+
+;; ── settings ──────────────────────────────────────────────────────────────
+;; settingsOptions[i].selected (0-based here): difficulty, fullscreen, resolution,
+;; graphics quality, player shape; the four Rebind rows keep their key in `keys`.
+pub struct Settings is
+    pub difficulty: int        ;; 0 very easy .. 4 insane
+    pub fullscreen: bool
+    pub res_index:  int        ;; 0 800x600 .. 4 2560x1440
+    pub graphics:   int        ;; 0 low .. 3 ultra
+    pub theme:      int        ;; 0 dark, 1 light, 2 neon, 3 retro
+    pub keys:       [int]      ;; jump, hack, left, right (h2d_keys codes)
+end
+
+;; ── the whole game ────────────────────────────────────────────────────────
+pub struct Game is
+    pub state:        int
+    pub game_over:    bool
+    pub game_won:     bool
+    pub current_level: int          ;; 1-based, like Lua
+    pub score:        f64
+    pub lives:        int
+    pub infinite_lives: bool        ;; practice mode (math.huge)
+    pub high_score:   f64
+    pub highest_level: int
+    pub game_mode:    int
+    pub time_elapsed: f64
+    pub time_limit:   f64
+    pub multiplier:   f64
+    pub combo_timer:  f64
+    pub hit_this_level: bool
+    pub achievements: [bool]
+    pub notif_text:   [string]      ;; achievementNotifQueue
+    pub notif_timer:  [f64]
+    pub rebind_key:   int           ;; -1 none, else 0 jump .. 3 right
+    pub gravity:      f64
+    pub player:       Player
+    pub camera_x:     f64
+    pub shake_timer:  f64
+    pub shake_intensity: f64
+    pub menu_time:    f64
+    pub settings:     Settings
+    pub platforms:    [Platform]
+    pub spikes:       [Spike]
+    pub data:         [DataItem]
+    pub enemies:      [Enemy]
+    pub powerups:     [Powerup]
+    pub falling_spikes: [FallingSpike]
+    pub goal:         Goal
+    pub selected_menu: int          ;; the selected_* fields are 1-based as in Lua
+    pub selected_pause: int
+    pub selected_mode: int
+    pub selected_level: int
+    pub selected_achievement: int
+    pub selected_theme: int
+    pub selected_setting: int
+    pub quit:         bool
+end
