@@ -1,0 +1,204 @@
+use "bit -> h2d"
+
+mod types
+
+;; Starblaster — physics.h#  (port of starblaster/src/physics.rs)
+;; Particles use H2D's ParticleSystem (burst): size shrinks and colour fades to
+;; transparent over the lifetime, velocity is damped by `drag` — the same
+;; look as the original `p.vel * 0.93` per frame (0.07 * 60 fps = 4.2).
+
+fn e_radius_mult(kind: int) -> f64 is
+    if kind == types::et_tank() is return 1.5 end
+    if kind == types::et_boss() is return 3.0 end
+    if kind == types::et_fast() is return 0.7 end
+    return 1.0
+end
+
+;; ── Particle helpers ──────────────────────────────────────────────────────
+
+fn col(r: f64, g: f64, b: f64, a: int) -> h2d_color::Color is
+    return h2d_color::color(types::f2i(r * 255.0 + 0.5), types::f2i(g * 255.0 + 0.5), types::f2i(b * 255.0 + 0.5), a)
+end
+
+pub fn spawn_hit_particles(mut fx: h2d_particles::ParticleSystem, pos: h2d_vec2::Vec2, count: int) -> h2d_particles::ParticleSystem is
+    return h2d_particles::burst(fx, pos, count, 40.0, 130.0, 0.4, 3.5, col(1.0, 0.5, 0.2, 255), col(1.0, 0.5, 0.2, 0))
+end
+
+pub fn spawn_explosion(mut fx: h2d_particles::ParticleSystem, pos: h2d_vec2::Vec2, kind: int) -> h2d_particles::ParticleSystem is
+    let mut count: int = 18
+    if kind == types::et_boss() is count = 60 end
+    if kind == types::et_tank() is count = 30 end
+    let mut c: h2d_color::Color = col(1.0, 0.6, 0.1, 255)
+    if kind == types::et_fast() is c = col(1.0, 0.5, 0.0, 255) end
+    if kind == types::et_tank() is c = col(0.7, 0.2, 1.0, 255) end
+    if kind == types::et_shooter() is c = col(0.2, 0.9, 0.9, 255) end
+    if kind == types::et_boss() is c = col(1.0, 0.1, 0.1, 255) end
+    return h2d_particles::burst(fx, pos, count, 60.0, 220.0, 0.9, 6.0, c, h2d_color::with_alpha(c, 0))
+end
+
+pub fn spawn_graze_particles(mut fx: h2d_particles::ParticleSystem, pos: h2d_vec2::Vec2) -> h2d_particles::ParticleSystem is
+    return h2d_particles::burst(fx, pos, 4, 50.0, 50.0, 0.25, 3.0, col(1.0, 0.9, 0.0, 255), col(1.0, 0.9, 0.0, 0))
+end
+
+;; ── Collisions ────────────────────────────────────────────────────────────
+
+;; Player bullets vs enemies, then graze. Returns (world, kills, graze_gained).
+pub fn check_player_bullets_vs_enemies(mut w: types::World) -> (types::World, int, bool) is
+    let mut kills: int = 0
+    let mut graze: bool = false
+
+    let mut i: int = 0
+    while i < w.bullets.len() is
+        if w.bullets[i].alive && w.bullets[i].is_player is
+            let mut j: int = 0
+            let mut hit: bool = false
+            while j < w.enemies.len() && !hit is
+                let et: int = w.enemies[j].enemy_type
+                let reach: f64 = types::bullet_radius() + types::enemy_radius() * e_radius_mult(et)
+                if types::dist(w.bullets[i].pos, w.enemies[j].pos) < reach is
+                    w.enemies[j].health -= w.bullets[i].damage
+                    w.bullets[i].alive = false
+                    w.player.shots_hit += 1
+                    w.fx = spawn_hit_particles(w.fx, w.bullets[i].pos, 6)
+                    if w.enemies[j].health <= 0 is
+                        w.enemies[j].state = types::st_retreating()
+                        kills += 1
+                        w.fx = spawn_explosion(w.fx, w.enemies[j].pos, et)
+                    end
+                    hit = true
+                end
+                j += 1
+            end
+        end
+        i += 1
+    end
+
+    ;; Graze: player bullets that pass within GRAZE_DISTANCE of living enemies
+    i = 0
+    while i < w.bullets.len() is
+        if w.bullets[i].alive && w.bullets[i].is_player && !w.bullets[i].grazed is
+            let mut j: int = 0
+            while j < w.enemies.len() is
+                if w.enemies[j].health > 0 is
+                    let d: f64 = types::dist(w.bullets[i].pos, w.enemies[j].pos)
+                    let body: f64 = types::bullet_radius() + types::enemy_radius() * e_radius_mult(w.enemies[j].enemy_type)
+                    if d < types::graze_distance() && d > body is
+                        w.bullets[i].grazed = true
+                        graze = true
+                    end
+                end
+                j += 1
+            end
+        end
+        i += 1
+    end
+
+    return (w, kills, graze)
+end
+
+;; Enemy bullets vs the player (the first bullet that connects ends the check).
+pub fn check_enemy_bullets_vs_player(mut w: types::World) -> types::World is
+    if w.player.invincible > 0.0 is return w end
+    let mut i: int = 0
+    while i < w.bullets.len() is
+        if w.bullets[i].alive && !w.bullets[i].is_player is
+            if types::dist(w.bullets[i].pos, w.player.pos) < types::bullet_radius() + types::player_radius() is
+                w.bullets[i].alive = false
+                if w.player.shield is
+                    w.player.shield = false
+                    w.fx = spawn_hit_particles(w.fx, w.player.pos, 14)
+                else is
+                    w.player.health -= w.bullets[i].damage
+                    w.player.invincible = 1.2
+                    w.fx = spawn_hit_particles(w.fx, w.player.pos, 10)
+                    return w
+                end
+            end
+        end
+        i += 1
+    end
+    return w
+end
+
+;; Enemy body contact.
+pub fn check_enemies_vs_player(mut w: types::World) -> types::World is
+    if w.player.invincible > 0.0 is return w end
+    let mut i: int = 0
+    while i < w.enemies.len() is
+        if w.enemies[i].health > 0 is
+            let reach: f64 = types::player_radius() + types::enemy_radius() * e_radius_mult(w.enemies[i].enemy_type)
+            if types::dist(w.enemies[i].pos, w.player.pos) < reach is
+                w.enemies[i].health -= 2
+                w.player.health -= 1
+                w.player.invincible = 1.5
+                w.fx = spawn_hit_particles(w.fx, w.player.pos, 12)
+                return w
+            end
+        end
+        i += 1
+    end
+    return w
+end
+
+;; ── Power-ups ─────────────────────────────────────────────────────────────
+
+fn apply_powerup(kind: int, mut p: types::PlayerState) -> types::PlayerState is
+    if kind == types::pu_shield() is
+        p.shield = true
+    elsif kind == types::pu_rapid() is
+        p.rapid_fire = true
+        p.rapid_timer = 8.0
+    elsif kind == types::pu_double() is
+        p.double_cannon = true
+        p.double_timer = 10.0
+    elsif kind == types::pu_nova() is
+        p.ulti_energy = 100.0
+    else is
+        p.health = p.health + 2
+        if p.health > p.max_health is p.health = p.max_health end
+    end
+    return p
+end
+
+;; First power-up within reach is picked up.
+pub fn check_powerup_pickup(mut w: types::World) -> types::World is
+    let mut i: int = 0
+    while i < w.powerups.len() is
+        if w.powerups[i].alive is
+            if types::dist(w.powerups[i].pos, w.player.pos) < types::player_radius() + 14.0 is
+                w.powerups[i].alive = false
+                w.player = apply_powerup(w.powerups[i].kind, w.player)
+                return w
+            end
+        end
+        i += 1
+    end
+    return w
+end
+
+;; 18 % chance, kind uniform over the five types.
+pub fn maybe_spawn_powerup(pos: h2d_vec2::Vec2, mut powerups: [types::PowerUp]) -> [types::PowerUp] is
+    if !h2d_random::chance(18) is return powerups end
+    let kind: int = h2d_random::range(0, 4)
+    powerups.push(types::PowerUp { pos: pos, kind: kind, alive: true, lifetime: 9.0 })
+    return powerups
+end
+
+;; Nova bomb: 999 damage to everything, 20 to a boss. Returns (world, kills).
+pub fn nova_bomb(mut w: types::World) -> (types::World, int) is
+    let mut kills: int = 0
+    let mut i: int = 0
+    while i < w.enemies.len() is
+        let mut dmg: int = 999
+        if w.enemies[i].enemy_type == types::et_boss() is dmg = 20 end
+        let mut hp: int = w.enemies[i].health - dmg
+        if hp < 0 - 1 is hp = 0 - 1 end
+        w.enemies[i].health = hp
+        if hp <= 0 is
+            w.fx = spawn_explosion(w.fx, w.enemies[i].pos, w.enemies[i].enemy_type)
+            kills += 1
+        end
+        i += 1
+    end
+    return (w, kills)
+end
