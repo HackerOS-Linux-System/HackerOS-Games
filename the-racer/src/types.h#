@@ -1,12 +1,5 @@
 use "std -> strings" from "str"
-use "bit -> h2d"
-
-;; The Racer — types.h#  (port of the-racer/src/types.rs)
-;;
-;; H# has no `&mut`, Option or enum-with-methods across modules, so:
-;;  * Series / TireCompound / Screen are ints with named getters + helper fns;
-;;  * Option<T> is a flag next to the value (`has_result`, `dnf_driver == 0`, `msg == ""`);
-;;  * every function takes a value and returns the new one (AppState / Team flow through).
+use "bit -> H2D"
 
 ;; ── helpers ───────────────────────────────────────────────────────────────
 pub fn rgba(r: f64, g: f64, b: f64, a: f64) -> h2d_color::Color is
