@@ -13,25 +13,22 @@
 [layout]
 -> src => src
 
-[dependecies]
--> h2d => newest
+[dependencies]
+-> H2D => newest
 
 [commands]
 -> make
---> run => ./scripts/build.sh build
---> description => Build libh2d_native.a and compile starblaster (static) into build/starblaster
+--> run => bit build --release
+--> description => Build starblaster (release, statically linked) into cache/build/release/starblaster
 -> play
---> run => ./scripts/build.sh run
+--> run => bit run
 --> description => Build and run Starblaster
 -> check
---> run => ./scripts/build.sh check
---> description => Type-check every module with h# check (no SDL needed)
+--> run => bit check
+--> description => Syntax + type check of every module (no SDL needed)
 -> smoke
---> run => ./scripts/smoke.sh
---> description => Headless run (SDL dummy driver), 300 frames + screenshot — for CI
--> bundle
---> run => ./scripts/bundle.sh
---> description => dist/starblaster/: binary + the shared libs it needs + launcher (runs on machines without SDL2_*)
+--> run => SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy H2D_MAX_FRAMES=300 H2D_SCREENSHOT=smoke.png bit run
+--> description => Headless run (SDL dummy driver), 300 frames + screenshot smoke.png — for CI
 -> install
---> run => ./scripts/build.sh install
---> description => Copy the binary to /usr/share/HackerOS/Scripts/HackerOS-Games/ (needs sudo)
+--> run => bit build --release && install -Dm755 cache/build/release/starblaster /usr/share/HackerOS/Scripts/HackerOS-Games/starblaster
+--> description => Build release and copy the binary to /usr/share/HackerOS/Scripts/HackerOS-Games/ (needs root)
