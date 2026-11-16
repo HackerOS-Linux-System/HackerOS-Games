@@ -1,14 +1,5 @@
 use "std -> strings" from "str"
-use "bit -> h2d"
-
-;; The Racer — text.h#  (new module; macroquad drew text with its built-in font)
-;;
-;; H2D has two text paths: an 8x8 bitmap font (ASCII only) and TrueType.
-;; The original HUD uses sizes 10..72 and the glyphs × ★ — •, so the game loads
-;; DejaVu Sans once per size it needs and draws through it. If no .ttf is found
-;; it falls back to the bitmap font (sizes snapped to multiples of 8 and the
-;; four non-ASCII glyphs replaced), so the game still runs everywhere.
-;; Text positions are BASELINES, exactly as in macroquad's draw_text.
+use "bit -> H2D"
 
 pub struct Fonts is
     pub ok:    bool
