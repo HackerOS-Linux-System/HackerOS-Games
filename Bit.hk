@@ -1,1 +1,36 @@
+[package]
+-> name        => HackerOS-Games
+-> version     => 0.8.0
+-> description => HackerOS Games — Starblaster, The Racer, Bit Jump (H# + H2D)
+-> authors     => ["HackerOS Team <hackeros068@gmail.com>"]
+-> license     => MIT
 
+[edition]
+-> edition   => 2026
+-> toolchain => 0.9
+
+[workspace]
+-> members => [starblaster, the-racer, bit-jump]
+
+[commands]
+-> play-starblaster
+--> run => bit run -p starblaster
+--> description => Zbuduj i uruchom Starblaster
+-> play-the-racer
+--> run => bit run -p the-racer
+--> description => Zbuduj i uruchom The Racer
+-> play-bit-jump
+--> run => bit run -p bit-jump
+--> description => Zbuduj i uruchom Bit Jump
+-> make-release
+--> run => bit build --release
+--> description => Release wszystkich gier do cache/build/<gra>/release/
+-> check-all
+--> run => bit check
+--> description => Sprawdzenie składni i typów wszystkich gier (bez SDL)
+-> smoke-all
+--> run => bash scripts/smoke-all.sh
+--> description => Headless: 300 klatek każdej gry + zrzut ekranu w cache/smoke-<gra>.png
+-> install-all
+--> run => bash scripts/install-all.sh
+--> description => Zainstaluj binarki release w /usr/share/HackerOS/Scripts/HackerOS-Games/ (wymaga root)
