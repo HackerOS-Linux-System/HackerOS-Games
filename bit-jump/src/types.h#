@@ -1,10 +1,4 @@
-use "bit -> h2d"
-
-;; Bit Jump — types.h#  (state that used to be Lua globals)
-;;
-;; Lua kept the whole game in global tables; H# has no globals, so everything lives in
-;; one `Game` value that is passed in and returned by every function (like H2D's examples).
-;; Lua string tags become ints: enemy type, power-up type, game mode, game state, shape.
+use "bit -> H2D"
 
 pub fn rgba(r: f64, g: f64, b: f64, a: f64) -> h2d_color::Color is
     return h2d_color::color(f2i(r * 255.0 + 0.5), f2i(g * 255.0 + 0.5), f2i(b * 255.0 + 0.5), f2i(a * 255.0 + 0.5))
