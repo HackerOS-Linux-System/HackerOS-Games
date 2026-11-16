@@ -1,6 +1,6 @@
 use "std -> strings" from "str"
 use "std -> conv" from "conv"
-use "bit -> h2d"
+use "bit -> H2D"
 
 mod types
 
