@@ -1,5 +1,5 @@
 use "std -> math" from "m"
-use "bit -> h2d"
+use "bit -> H2D"
 
 mod types
 mod util
