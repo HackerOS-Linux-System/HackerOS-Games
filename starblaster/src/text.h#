@@ -1,5 +1,5 @@
 use "std -> strings" from "str"
-use "bit -> h2d"
+use "bit -> H2D"
 
 ;; Starblaster — text.h#  (new module; macroquad drew text with its built-in font)
 ;;
