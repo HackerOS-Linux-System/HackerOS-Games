@@ -1,6 +1,6 @@
 use "std -> math" from "m"
 use "std -> strings" from "str"
-use "bit -> h2d"
+use "bit -> H2D"
   
 mod types
 mod text
