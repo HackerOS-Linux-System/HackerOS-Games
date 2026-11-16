@@ -14,7 +14,6 @@
 -> src => src
 
 [dependencies]
-! 2D game engine from bit.io (index name is exactly `H2D`)
 -> H2D => newest
 
 [commands]
