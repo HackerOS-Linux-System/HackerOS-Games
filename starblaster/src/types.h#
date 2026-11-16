@@ -1,13 +1,4 @@
-use "bit -> h2d"
-
-;; Starblaster — types.h#  (port of starblaster/src/types.rs)
-;;
-;; Differences forced by the language, not by the game:
-;;  * cross-module constants are zero-argument `pub fn`s (H2D uses the same
-;;    pattern: `h2d_keys::key_space()`), enums are small ints with named getters;
-;;  * `SerVec2` is `h2d_vec2::Vec2` (it already has add / sub / scale / dot / length);
-;;  * H# has no `&mut`: every function takes a value and returns the new one,
-;;    so the whole game lives in one `World` value.
+use "bit -> H2D"
 
 ;; ── Constants ─────────────────────────────────────────────────────────────
 pub fn player_speed()   -> f64 is return 350.0 end
