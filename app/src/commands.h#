@@ -1,0 +1,244 @@
+use "bit -> silver" from "silver"
+use "std -> fs"      from "fs"
+use "std -> process" from "process"
+use "std -> strings" from "str"
+
+mod paths
+mod util
+mod store
+mod games
+mod sandbox
+mod jobs
+
+fn flag(key: string, v: bool) -> string is
+    return data::set_bool(data::object(), key, v)
+end
+
+;; ───────────────────────── built-in games ─────────────────────────
+
+pub fn check_game_exists(args: string) -> string is
+    return flag("exists", games::files_present(games::builtin(data::get_str(args, "gameId"))))
+end
+
+;; Shared by every launch command: preflight, sandbox, detach, playtime bookkeeping.
+fn start(id: string, l: games::Launch, extra: [string]) -> string is
+    if !games::startable(l) is return util::fail("launch_failed", games::why_not(l, id)) end
+    ;; native binaries: make sure they carry the exec bit (best effort, like the Rust version)
+    if string_starts_with(l.cmd, "/") && array_len(l.args) == 0 is
+        process::run("chmod 755 " + util::shq(l.cmd) + " 2>/dev/null")
+    end
+    let pid: int = sandbox::run_detached(id, sandbox::line(sandbox::argv(l.cmd, l.args, extra)))
+    if pid < 0 is return util::fail("launch_failed", "Failed to launch " + id) end
+    store::update_playtime(id, 0, 1)
+    return flag("ok", true)
+end
+
+pub fn launch_game(args: string) -> string is
+    let id: string = data::get_str(args, "gameId")
+    let l: games::Launch = games::builtin(id)
+    if !l.ok is return util::fail("not_found", l.error) end
+    let cfg: string = store::settings_for(id)
+    let mut extra: [string] = []
+    if data::get_bool(cfg, "fullscreen") is extra = array_push(extra, "--fullscreen") end
+    let more: [string] = str::split_whitespace(data::get_str(cfg, "launchArgs"))
+    let mut i: int = 0
+    while i < array_len(more) is
+        extra = array_push(extra, more[i])
+        i += 1
+    end
+    return start(id, l, extra)
+end
+
+pub fn record_playtime(args: string) -> string is
+    let id: string = data::get_str(args, "gameId")
+    let secs: int = data::get_int(args, "seconds")
+    if !util::valid_id(id) || secs < 0 is return util::fail("invalid_args", "Invalid playtime record") end
+    store::update_playtime(id, secs, 0)
+    return util::ok()
+end
+
+pub fn get_all_playtime(args: string) -> string is
+    return store::playtime()
+end
+
+;; ───────────────────────── settings ─────────────────────────
+
+pub fn save_game_settings(args: string) -> string is
+    let id: string = data::get_str(args, "gameId")
+    if !util::valid_id(id) is return util::fail("invalid_args", "Invalid game id") end
+    store::save_game_settings(id, data::get_raw(args, "settings"))
+    return util::ok()
+end
+
+pub fn get_all_game_settings(args: string) -> string is
+    return store::game_settings()
+end
+
+pub fn get_app_settings(args: string) -> string is
+    return store::app_settings()
+end
+
+pub fn save_app_settings(args: string) -> string is
+    store::save_app_settings(data::get_raw(args, "settings"))
+    return util::ok()
+end
+
+;; ───────────────────────── addon pack ─────────────────────────
+
+pub fn check_addons_installed(args: string) -> string is
+    return flag("installed", fs::is_dir(paths::addons_dir()))
+end
+
+pub fn check_addon_game_exists(args: string) -> string is
+    return flag("exists", games::files_present(games::addon(data::get_str(args, "addonId"))))
+end
+
+pub fn launch_addon_game(args: string) -> string is
+    let id: string = data::get_str(args, "addonId")
+    let l: games::Launch = games::addon(id)
+    if !l.ok is return util::fail("not_found", l.error) end
+    return start(id, l, util::no_args())
+end
+
+;; Downloads addons.hl and runs it with `hl`. Asynchronous: result arrives as
+;; silver://task {id: jobId, output: "OK" | "ERR:<message>"}.
+pub fn install_addons(args: string) -> string is
+    let mut job: string = data::get_str(args, "jobId")
+    if !util::valid_id(job) is job = "addons" end
+    let tmp: string = util::shq(paths::data_dir() + "/addons.hl")
+    let mut s: string = "t=" + tmp + "\n"
+    s = s + "if ! curl -fsSL -o \"$t\" " + util::shq(paths::addons_url()) + " 2>/dev/null; then echo 'ERR:Failed to download addons.hl'; exit 0; fi\n"
+    s = s + "chmod 755 \"$t\"\n"
+    s = s + "out=$(/usr/bin/hl run \"$t\" 2>&1); rc=$?\n"
+    s = s + "rm -f \"$t\"\n"
+    s = s + "if [ $rc -ne 0 ]; then echo \"ERR:Addon installer failed: $(printf '%s' \"$out\" | tail -n 3 | tr '\\n' ' ')\"; exit 0; fi\n"
+    s = s + "if [ -d " + util::shq(paths::addons_dir()) + " ]; then echo OK; else echo 'ERR:Installer finished but the addons directory was not created'; fi\n"
+    jobs::enqueue(job, s)
+    return data::set_str(util::ok(), "jobId", job)
+end
+
+;; ───────────────────────── community store ─────────────────────────
+
+;; Shell fragment that downloads $1-style: curl first, then wget.
+fn download(url: string, out: string) -> string is
+    return "(curl -fsSL -o " + out + " " + url + " 2>/dev/null || wget -q -O " + out + " " + url + " 2>/dev/null)"
+end
+
+;; Installs a community game from a git repo or a direct download:
+;;   *.git → git clone --depth=1 · *.zip → unzip · *.tar.gz|*.tgz|*.tar → tar · anything else → single binary
+;; Asynchronous (job); finish with `finalize_community_install` once the task event says OK.
+pub fn install_community_game(args: string) -> string is
+    let id: string = data::get_str(args, "gameId")
+    let url: string = str::trim(data::get_str(args, "installUrl"))
+    if !util::valid_id(id) is return util::fail("invalid_args", "Invalid game id") end
+    if !util::is_http_url(url) is return util::fail("invalid_args", "Install URL must be http(s)") end
+    let mut job: string = data::get_str(args, "jobId")
+    if !util::valid_id(job) is job = "install-" + id end
+
+    let dest: string = paths::store_dir() + "/" + id
+    let low: string = str::to_lower(url)
+    let qd: string = util::shq(dest)
+    let qu: string = util::shq(url)
+    let mut s: string = "dest=" + qd + "\n"
+    s = s + "rm -rf \"$dest\"\n"
+    s = s + "if ! mkdir -p \"$dest\"; then echo 'ERR:Cannot create game dir'; exit 0; fi\n"
+    s = s + "ok=1\n"
+    let mut msg: string = "Failed to download " + url
+    if string_ends_with(low, ".git") is
+        msg = "git clone failed for " + url
+        s = s + "GIT_TERMINAL_PROMPT=0 git clone --depth=1 -- " + qu + " \"$dest\" >/dev/null 2>&1 || ok=0\n"
+    elsif string_ends_with(low, ".zip") is
+        let tmp: string = util::shq(paths::data_dir() + "/dl-" + id + ".zip")
+        s = s + download(qu, tmp) + " && unzip -o -q " + tmp + " -d \"$dest\" || ok=0\n"
+        s = s + "rm -f " + tmp + "\n"
+    elsif string_ends_with(low, ".tar.gz") || string_ends_with(low, ".tgz") || string_ends_with(low, ".tar") is
+        let tmp: string = util::shq(paths::data_dir() + "/dl-" + id + ".tar")
+        s = s + download(qu, tmp) + " && (tar -xf " + tmp + " -C \"$dest\" --strip-components=1 2>/dev/null || tar -xf " + tmp + " -C \"$dest\") || ok=0\n"
+        s = s + "rm -f " + tmp + "\n"
+    else is
+        let out: string = util::shq(dest + "/" + id)
+        s = s + download(qu, out) + " && chmod 755 " + out + " || ok=0\n"
+    end
+    s = s + "if [ \"$ok\" = 1 ]; then echo OK; else rm -rf \"$dest\"; printf 'ERR:%s\\n' " + util::shq(msg) + "; fi\n"
+    jobs::enqueue(job, s)
+    return data::set_str(util::ok(), "jobId", job)
+end
+
+;; Second half of an install: detect the game type, record it, return the record.
+pub fn finalize_community_install(args: string) -> string is
+    let id: string = data::get_str(args, "gameId")
+    if !util::valid_id(id) is return util::fail("invalid_args", "Invalid game id") end
+    let dest: string = paths::store_dir() + "/" + id
+    if !fs::is_dir(dest) is return util::fail("install_failed", "Install directory is missing") end
+    let kind: string = games::detect_install_type(dest, id)
+    return store::save_install(id, data::get_str(args, "title"), kind, dest)
+end
+
+pub fn launch_community_game(args: string) -> string is
+    let id: string = data::get_str(args, "gameId")
+    if !util::valid_id(id) is return util::fail("invalid_args", "Invalid game id") end
+    let l: games::Launch = games::community(id)
+    if !l.ok is return util::fail("not_found", l.error) end
+    return start(id, l, util::no_args())
+end
+
+;; Removes the game directory (only ever inside the community store roots) and its record.
+pub fn uninstall_community_game(args: string) -> string is
+    let id: string = data::get_str(args, "gameId")
+    if !util::valid_id(id) is return util::fail("invalid_args", "Invalid game id") end
+    let rec: string = store::install_record(id)
+    if rec != "" is
+        let p: string = data::get_str(rec, "installPath")
+        if fs::exists(p) is
+            if !paths::inside_store(p) is return util::fail("forbidden", "Refusing to remove " + p) end
+            fs::rmdir_all(p)
+            if fs::exists(p) is return util::fail("remove_failed", "Failed to remove " + p) end
+        end
+    end
+    store::remove_install(id)
+    return util::ok()
+end
+
+pub fn get_community_installs(args: string) -> string is
+    return store::installs()
+end
+
+pub fn check_community_game_installed(args: string) -> string is
+    let rec: string = store::install_record(data::get_str(args, "gameId"))
+    if rec == "" is return flag("installed", false) end
+    return flag("installed", fs::exists(data::get_str(rec, "installPath")))
+end
+
+;; ───────────────────────── misc ─────────────────────────
+
+;; Opens an http(s) URL in the default browser (xdg-open).
+pub fn open_url(args: string) -> string is
+    let url: string = data::get_str(args, "url")
+    if !util::is_http_url(url) is return util::fail("invalid_args", "Refusing to open a non-http(s) URL") end
+    process::spawn("xdg-open " + util::shq(url) + " </dev/null >/dev/null 2>&1")
+    return util::ok()
+end
+
+;; Silver can only draw local image files, so store artwork is downloaded into
+;; ~/.hackeros-games/cache first. Asynchronous: the task output has one "<url>\t<path>" line per
+;; image that is available locally.
+pub fn cache_images(args: string) -> string is
+    let mut job: string = data::get_str(args, "jobId")
+    if !util::valid_id(job) is job = "images" end
+    let urls: [string] = data::items(data::get_raw(args, "urls"))
+    let dir: string = util::shq(paths::cache_dir())
+    let mut s: string = "d=" + dir + "\n"
+    let mut i: int = 0
+    let mut n: int = 0
+    while i < array_len(urls) && n < 48 is
+        let u: string = data::text(urls[i])
+        i += 1
+        if !util::is_http_url(u) is continue end
+        n += 1
+        s = s + "u=" + util::shq(u) + "; f=\"$d/img-$(printf '%s' \"$u\" | cksum | cut -d' ' -f1)\"\n"
+        s = s + "if [ -s \"$f\" ] || curl -fsSL --max-time 20 --max-filesize 5242880 -o \"$f\" \"$u\" 2>/dev/null; then printf '%s\\t%s\\n' \"$u\" \"$f\"; else rm -f \"$f\"; fi\n"
+    end
+    if n == 0 is return data::set_str(util::ok(), "jobId", "") end
+    jobs::enqueue(job, s)
+    return data::set_str(util::ok(), "jobId", job)
+end
