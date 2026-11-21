@@ -1,0 +1,152 @@
+use "bit -> silver" from "silver"
+use "std -> fs"      from "fs"
+use "std -> process" from "process"
+use "std -> strings" from "str"
+
+mod paths
+mod util
+mod store
+
+pub struct Launch is
+    pub ok:     bool
+    pub cmd:    string
+    pub args:   [string]
+    ;; file that has to exist for the game to be startable ("" = nothing to check)
+    pub target: string
+    pub error:  string
+end
+
+fn bad(msg: string) -> Launch is
+    return Launch { ok: false, cmd: "", args: util::no_args(), target: "", error: msg }
+end
+
+fn binary(path: string) -> Launch is
+    return Launch { ok: true, cmd: path, args: util::no_args(), target: path, error: "" }
+end
+
+fn love(file: string) -> Launch is
+    return Launch { ok: true, cmd: "love", args: [file], target: file, error: "" }
+end
+
+;; Maps a built-in game id → how to start it.
+;;   the-racer     → binary
+;;   cosmonaut     → love <games>/cosmonaut.love
+;;   starblaster   → binary
+;;   bark-squadron → binary  (was AppImage, now a native binary)
+;;   bit-jump      → binary (H#), falling back to love <games>/bit-jump.love
+pub fn builtin(id: string) -> Launch is
+    let base: string = paths::games_base()
+    if id == "the-racer" is return binary(base + "/the-racer") end
+    if id == "cosmonaut" is return love(base + "/cosmonaut.love") end
+    if id == "starblaster" is return binary(base + "/starblaster") end
+    if id == "bark-squadron" is return binary(base + "/bark-squadron") end
+    ;; Bit Jump is now built from H# and installed as a binary; older installs still ship bit-jump.love.
+    if id == "bit-jump" is
+        if fs::exists(base + "/bit-jump") is return binary(base + "/bit-jump") end
+        return love(base + "/bit-jump.love")
+    end
+    return bad("Unknown game: " + id)
+end
+
+;; Maps an addon-pack game id → how to start it.
+pub fn addon(id: string) -> Launch is
+    if id == "parkour-runner" is return love(paths::addons_dir() + "/parkour-runner.love") end
+    return bad("Unknown addon game: " + id)
+end
+
+fn find_entry(dir: string, candidates: [string]) -> string is
+    let mut i: int = 0
+    while i < array_len(candidates) is
+        let p: string = dir + "/" + candidates[i]
+        if fs::exists(p) is return p end
+        i += 1
+    end
+    return dir
+end
+
+;; A LÖVE game is either a directory with main.lua, a .love archive, or a directory that
+;; contains exactly such an archive.
+fn love_target(path: string) -> string is
+    if fs::is_file(path) is return path end
+    if fs::exists(path + "/main.lua") is return path end
+    let names: [string] = fs::list_dir(path)
+    let mut i: int = 0
+    while i < array_len(names) is
+        let n: string = names[i]
+        i += 1
+        if string_ends_with(str::to_lower(n), ".love") is
+            if string_starts_with(n, "/") is return n end
+            return path + "/" + n
+        end
+    end
+    return path
+end
+
+;; Launch recipe of an installed community game, derived from its recorded install type:
+;;   binary → execute · python → python3 main.py · ruby → ruby main.rb · love → love <path>
+pub fn community(id: string) -> Launch is
+    let rec: string = store::install_record(id)
+    if rec == "" is return bad("Game " + id + " not installed") end
+    let kind: string = data::get_str(rec, "installType")
+    let path: string = data::get_str(rec, "installPath")
+    if kind == "binary" is
+        let mut bin: string = path
+        if fs::is_dir(path) is bin = path + "/" + data::get_str(rec, "gameId") end
+        return binary(bin)
+    end
+    if kind == "python" is
+        let entry: string = find_entry(path, ["main.py", "game.py", "run.py", "__main__.py"])
+        return Launch { ok: true, cmd: "python3", args: [entry], target: entry, error: "" }
+    end
+    if kind == "ruby" is
+        let entry: string = find_entry(path, ["main.rb", "game.rb"])
+        return Launch { ok: true, cmd: "ruby", args: [entry], target: entry, error: "" }
+    end
+    if kind == "love" is return love(love_target(path)) end
+    return bad("Cannot launch game type '" + kind + "'")
+end
+
+;; Everything needed to start the game is on disk and the interpreter (if any) is installed.
+pub fn startable(l: Launch) -> bool is
+    if !l.ok is return false end
+    if l.target != "" && !fs::exists(l.target) is return false end
+    if !string_starts_with(l.cmd, "/") && process::which(l.cmd) == "" is return false end
+    return true
+end
+
+;; Human-readable reason why `startable` is false.
+pub fn why_not(l: Launch, id: string) -> string is
+    if !l.ok is return l.error end
+    if l.target != "" && !fs::exists(l.target) is return "Failed to launch " + id + ": " + l.target + " not found" end
+    return "Failed to launch " + id + ": '" + l.cmd + "' is not installed"
+end
+
+;; Mirrors the old `check_game_exists`: only the game file itself is checked.
+pub fn files_present(l: Launch) -> bool is
+    if !l.ok is return false end
+    return l.target == "" || fs::exists(l.target)
+end
+
+;; Detects what kind of project a freshly installed community game is.
+;; binary | python | ruby | love | unknown
+pub fn detect_install_type(dir: string, id: string) -> string is
+    if !fs::is_dir(dir) is return "unknown" end
+    let py: [string] = ["main.py", "game.py", "run.py", "__main__.py"]
+    let mut i: int = 0
+    while i < array_len(py) is
+        if fs::exists(dir + "/" + py[i]) is return "python" end
+        i += 1
+    end
+    if fs::exists(dir + "/main.rb") || fs::exists(dir + "/game.rb") is return "ruby" end
+    if fs::exists(dir + "/main.lua") is return "love" end
+    ;; a .love archive in the top level
+    let names: [string] = fs::list_dir(dir)
+    let mut j: int = 0
+    while j < array_len(names) is
+        if string_ends_with(str::to_lower(names[j]), ".love") is return "love" end
+        j += 1
+    end
+    ;; generic binary named after the game id
+    if fs::exists(dir + "/" + id) && fs::is_file(dir + "/" + id) is return "binary" end
+    return "unknown"
+end
