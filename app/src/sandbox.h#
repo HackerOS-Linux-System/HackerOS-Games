@@ -1,0 +1,69 @@
+use "bit -> silver" from "silver"
+use "std -> fs"      from "fs"
+use "std -> process" from "process"
+use "std -> strings" from "str"
+
+mod paths
+mod util
+
+fn push(a: [string], s: string) -> [string] is
+    return array_push(a, s)
+end
+
+fn push_all(a: [string], more: [string]) -> [string] is
+    let mut out: [string] = a
+    let mut i: int = 0
+    while i < array_len(more) is
+        out = array_push(out, more[i])
+        i += 1
+    end
+    return out
+end
+
+;; Full argv (cmd first) of the sandboxed game process.
+pub fn argv(cmd: string, args: [string], extra: [string]) -> [string] is
+    let mut c: [string] = []
+    let mut bwrap: string = ""
+    if fs::exists("/usr/bin/bwrap") is bwrap = "/usr/bin/bwrap" end
+    if bwrap == "" && fs::exists("/bin/bwrap") is bwrap = "/bin/bwrap" end
+
+    if bwrap != "" is
+        let data: string = paths::data_dir()
+        let base: string = paths::games_base()
+        c = push(c, bwrap)
+        c = push_all(c, ["--ro-bind", "/usr", "/usr", "--ro-bind", "/bin", "/bin", "--ro-bind", "/lib", "/lib"])
+        ;; /lib64 does not exist on every distro
+        if fs::exists("/lib64") is c = push_all(c, ["--ro-bind", "/lib64", "/lib64"]) end
+        c = push_all(c, ["--ro-bind", "/etc", "/etc", "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp"])
+        c = push_all(c, ["--ro-bind", base, base])
+        c = push_all(c, ["--bind", data, data])
+        c = push_all(c, ["--unshare-net", "--unshare-pid", "--unshare-uts", "--new-session", "--", cmd])
+    elsif fs::exists("/usr/bin/firejail") is
+        c = push_all(c, ["/usr/bin/firejail", "--quiet", "--net=none", "--private-tmp", "--read-only=/usr/share", cmd])
+    else is
+        c = push(c, cmd)
+    end
+    c = push_all(c, args)
+    c = push_all(c, extra)
+    return c
+end
+
+;; Shell-quotes every token and joins them: safe to embed in an `sh -c` script.
+pub fn line(tokens: [string]) -> string is
+    let mut s: string = ""
+    let mut i: int = 0
+    while i < array_len(tokens) is
+        if i > 0 is s = s + " " end
+        s = s + util::shq(tokens[i])
+        i += 1
+    end
+    return s
+end
+
+;; Starts the game in the background and returns immediately. A wrapper subshell measures
+;; the run time and appends "<id> <seconds>" to playtime.log once the game exits
+;; (store::ingest_playtime_log folds it into playtime.json).
+pub fn run_detached(id: string, command_line: string) -> int is
+    let script: string = "( s=$(date +%s); " + command_line + " </dev/null >/dev/null 2>&1; e=$(date +%s); printf '%s %s\\n' " + util::shq(id) + " $((e-s)) >> " + util::shq(paths::playtime_log()) + " ) </dev/null >/dev/null 2>&1 &"
+    return process::spawn(script)
+end
