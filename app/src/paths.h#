@@ -1,0 +1,69 @@
+use "bit -> silver" from "silver"
+use "std -> env"  from "env"
+use "std -> fs"   from "fs"
+use "std -> process" from "process"
+use "std -> strings" from "str"
+
+mod util
+
+;; Base directory all HackerOS-native games are installed under.
+pub fn games_base() -> string is
+    return "/usr/share/HackerOS/Scripts/HackerOS-Games"
+end
+
+;; Directory the optional community addon pack installs games into.
+pub fn addons_dir() -> string is
+    return "/usr/share/HackerOS/Scripts/HackerOS-Games/addons"
+end
+
+;; Raw GitHub URL of the addon pack installer script.
+pub fn addons_url() -> string is
+    return "https://raw.githubusercontent.com/HackerOS-Linux-System/HackerOS-Games/main/addons.hl"
+end
+
+;; Preferred community store directory (only used when it is writable).
+pub fn system_store_dir() -> string is
+    return games_base() + "/community"
+end
+
+;; ~/.hackeros-games — settings, playtime, caches. Created on first use.
+pub fn data_dir() -> string is
+    let mut h: string = env::get_or("HOME", "/tmp")
+    if h == "" is h = "/tmp" end
+    let d: string = h + "/.hackeros-games"
+    if !fs::exists(d) is fs::mkdir(d) end
+    return d
+end
+
+fn sub_dir(name: string) -> string is
+    let d: string = data_dir() + "/" + name
+    if !fs::exists(d) is fs::mkdir(d) end
+    return d
+end
+
+pub fn jobs_dir() -> string is return sub_dir("jobs") end
+pub fn cache_dir() -> string is return sub_dir("cache") end
+pub fn user_store_dir() -> string is return sub_dir("community") end
+
+pub fn playtime_log() -> string is
+    return data_dir() + "/playtime.log"
+end
+
+;; Where community games are installed: the system directory when we can write
+;; to it (as the Tauri build did), otherwise ~/.hackeros-games/community — that
+;; one is bind-mounted read-write into the sandbox, so installed games still run.
+pub fn store_dir() -> string is
+    let sys: string = system_store_dir()
+    let probe: string = process::run("mkdir -p " + util::shq(sys) + " 2>/dev/null && test -w " + util::shq(sys) + " && echo yes")
+    if str::trim(probe) == "yes" is return sys end
+    return user_store_dir()
+end
+
+;; True when `p` is a directory inside one of the community store roots (used to
+;; make sure uninstall can never delete anything outside them).
+pub fn inside_store(p: string) -> bool is
+    if str::index_of(p, "..") >= 0 is return false end
+    let a: string = system_store_dir() + "/"
+    let b: string = user_store_dir() + "/"
+    return (string_starts_with(p, a) && string_len(p) > string_len(a)) || (string_starts_with(p, b) && string_len(p) > string_len(b))
+end
