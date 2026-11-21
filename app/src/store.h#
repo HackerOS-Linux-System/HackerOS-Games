@@ -1,0 +1,181 @@
+use "bit -> silver" from "silver"
+use "std -> fs"      from "fs"
+use "std -> strings" from "str"
+use "std -> conv"    from "conv"
+
+mod paths
+mod util
+
+fn file(name: string) -> string is
+    return paths::data_dir() + "/" + name
+end
+
+;; Reads a JSON object file; anything missing or malformed becomes {}.
+fn read_obj(name: string) -> string is
+    let p: string = file(name)
+    if !fs::exists(p) is return "{{}}" end
+    let s: string = str::trim(fs::read(p))
+    if !string_starts_with(s, "{{") is return "{{}}" end
+    return s
+end
+
+;; Atomic write: temp file + rename, so a crash never leaves half a JSON file behind.
+fn write_obj(name: string, content: string) is
+    let p: string = file(name)
+    let t: string = p + ".tmp"
+    fs::write(t, content)
+    fs::rename(t, p)
+end
+
+fn is_hex_color(s: string) -> bool is
+    if string_len(s) != 7 || string_at(s, 0) != "#" is return false end
+    let hex: string = "0123456789abcdefABCDEF"
+    let mut i: int = 1
+    while i < 7 is
+        if str::index_of(hex, string_at(s, i)) < 0 is return false end
+        i += 1
+    end
+    return true
+end
+
+;; ───────────────────────── playtime ─────────────────────────
+
+fn make_entry(id: string, total: int, last: int, sessions: int) -> string is
+    let mut e: string = data::object()
+    e = data::set_str(e, "game_id", id)
+    e = data::set_int(e, "total_seconds", total)
+    e = data::set_int(e, "last_played", last)
+    e = data::set_int(e, "sessions", sessions)
+    return e
+end
+
+;; Adds seconds and/or sessions to a game's playtime record (creating it when needed).
+pub fn update_playtime(id: string, add_seconds: int, add_sessions: int) is
+    let all: string = read_obj("playtime.json")
+    let mut total: int = 0
+    let mut sessions: int = 0
+    let mut last: int = util::now()
+    if data::has_key(all, id) is
+        let cur: string = data::get_raw(all, id)
+        total = data::get_int(cur, "total_seconds")
+        sessions = data::get_int(cur, "sessions")
+        last = data::get_int(cur, "last_played")
+    end
+    total += add_seconds
+    sessions += add_sessions
+    if add_sessions > 0 is last = util::now() end
+    write_obj("playtime.json", data::set_raw(all, id, make_entry(id, total, last, sessions)))
+end
+
+;; Launched games run inside a tiny shell wrapper that appends "<id> <seconds>" to
+;; playtime.log when the game exits (see sandbox::run_detached). We fold those lines
+;; into playtime.json here — so playtime is tracked even if the launcher was closed
+;; while the game was running. (The Tauri build never recorded any playtime.)
+pub fn ingest_playtime_log() is
+    let log: string = paths::playtime_log()
+    if !fs::exists(log) is return end
+    let tmp: string = log + ".ingest"
+    fs::rename(log, tmp)
+    let lines: [string] = fs::read_lines(tmp)
+    let mut i: int = 0
+    while i < array_len(lines) is
+        let parts: [string] = str::split(str::trim(lines[i]), " ")
+        i += 1
+        if array_len(parts) != 2 is continue end
+        if !util::valid_id(parts[0]) || !str::is_numeric(parts[1]) is continue end
+        let secs: int = conv::str_to_int(parts[1])
+        if secs < 0 || secs > 604800 is continue end
+        update_playtime(parts[0], secs, 0)
+    end
+    fs::remove(tmp)
+end
+
+pub fn playtime() -> string is
+    ingest_playtime_log()
+    return read_obj("playtime.json")
+end
+
+;; ───────────────────────── per-game settings ─────────────────────────
+
+pub fn game_settings() -> string is
+    return read_obj("settings.json")
+end
+
+pub fn normalize_game_settings(raw: string) -> string is
+    let mut o: string = data::object()
+    o = data::set_bool(o, "fullscreen", data::get_bool(raw, "fullscreen"))
+    let mut res: string = str::trim(data::get_str(raw, "resolution"))
+    if res == "" is res = "1920x1080" end
+    o = data::set_str(o, "resolution", res)
+    let mut vol: int = data::get_int(raw, "volume")
+    if vol < 0 is vol = 0 end
+    if vol > 100 is vol = 100 end
+    o = data::set_int(o, "volume", vol)
+    o = data::set_str(o, "launchArgs", data::get_str(raw, "launchArgs"))
+    return o
+end
+
+pub fn save_game_settings(id: string, raw: string) is
+    let all: string = read_obj("settings.json")
+    write_obj("settings.json", data::set_raw(all, id, normalize_game_settings(raw)))
+end
+
+;; Settings of one game, or the defaults when nothing was saved yet.
+pub fn settings_for(id: string) -> string is
+    let all: string = read_obj("settings.json")
+    if data::has_key(all, id) is return normalize_game_settings(data::get_raw(all, id)) end
+    return normalize_game_settings("{{}}")
+end
+
+;; ───────────────────────── app settings ─────────────────────────
+
+pub fn normalize_app_settings(raw: string) -> string is
+    let mut o: string = data::object()
+    let mut lang: string = data::get_str(raw, "language")
+    if lang != "en" && lang != "pl" is lang = "en" end
+    o = data::set_str(o, "language", lang)
+    o = data::set_bool(o, "particlesEnabled", if data::has_key(raw, "particlesEnabled") then data::get_bool(raw, "particlesEnabled") else true)
+    o = data::set_bool(o, "minimizeOnClose", data::get_bool(raw, "minimizeOnClose"))
+    o = data::set_bool(o, "autoCheckAddons", if data::has_key(raw, "autoCheckAddons") then data::get_bool(raw, "autoCheckAddons") else true)
+    let mut accent: string = data::get_str(raw, "accentColor")
+    if !is_hex_color(accent) is accent = "#2a8fff" end
+    o = data::set_str(o, "accentColor", accent)
+    return o
+end
+
+pub fn app_settings() -> string is
+    return normalize_app_settings(read_obj("app_settings.json"))
+end
+
+pub fn save_app_settings(raw: string) is
+    write_obj("app_settings.json", normalize_app_settings(raw))
+end
+
+;; ───────────────────────── community installs ─────────────────────────
+
+pub fn installs() -> string is
+    return read_obj("community_installs.json")
+end
+
+pub fn install_record(id: string) -> string is
+    let all: string = read_obj("community_installs.json")
+    if !data::has_key(all, id) is return "" end
+    return data::get_raw(all, id)
+end
+
+pub fn save_install(id: string, title: string, install_type: string, install_path: string) -> string is
+    let mut r: string = data::object()
+    r = data::set_str(r, "gameId", id)
+    r = data::set_str(r, "title", title)
+    r = data::set_str(r, "installType", install_type)
+    r = data::set_str(r, "installPath", install_path)
+    r = data::set_int(r, "installedAt", util::now())
+    let all: string = read_obj("community_installs.json")
+    write_obj("community_installs.json", data::set_raw(all, id, r))
+    return r
+end
+
+pub fn remove_install(id: string) is
+    let all: string = read_obj("community_installs.json")
+    write_obj("community_installs.json", data::remove_key(all, id))
+end
