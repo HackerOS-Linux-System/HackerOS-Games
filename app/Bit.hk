@@ -1,0 +1,52 @@
+[package]
+-> name        => hackeros-games
+-> version     => 0.9.0
+-> description => HackerOS Games — game launcher with sandbox, addon pack and community store. H# + TypeScript + Solid.js + Silver.
+-> authors     => ["HackerOS Team <hackeros068@gmail.com>"]
+-> license     => MIT
+-> lang        => h#
+
+[edition]
+-> edition   => 2026
+-> toolchain => 0.9
+
+[layout]
+-> src => src
+
+[build]
+-> link => static
+
+[dependencies]
+-> silver => newest
+
+[default-build]
+-> profile => release
+-> target  => h#
+-> emit    => bin
+-> run     => false
+
+[hooks]
+-> pre-build => cd frontend && npm install --no-audit --no-fund && npm run build
+
+[commands]
+-> frontend
+--> run => cd frontend && npm install --no-audit --no-fund && npm run build
+--> description => Build the frontend (TypeScript + Solid → frontend/dist/app.js) and re-embed it (src/assets_gen.h#)
+-> typecheck
+--> run => cd frontend && npm install --no-audit --no-fund && npm run typecheck
+--> description => Type-check the frontend with tsc (uses the types from @hackeros/silver-types)
+-> watch
+--> run => cd frontend && npm run watch
+--> description => Rebuild the frontend on every change (run `HACKEROS_GAMES_DEV=1 bit run` next to it — hot reload picks up dist/app.js)
+-> make
+--> run => bit build --release
+--> description => Build the launcher (release, statically linked) into cache/build/release/hackeros-games
+-> play
+--> run => bit run
+--> description => Build and run the launcher
+-> check
+--> run => bit check
+--> description => Syntax + type check of the H# backend (no SDL needed)
+-> install
+--> run => bit build --release && install -Dm755 cache/build/release/hackeros-games /usr/bin/hackeros-games && install -Dm644 com.hackeros.games.desktop /usr/share/applications/com.hackeros.games.desktop && install -Dm644 frontend/images/icon.png /usr/share/icons/hicolor/512x512/apps/hackeros-games.png
+--> description => Build release and install the binary, .desktop entry and icon (needs root)
