@@ -1,0 +1,52 @@
+use "bit -> silver" from "silver"
+use "std -> strings" from "str"
+use "std -> time"    from "time"
+
+pub fn now() -> int is
+    return time::now_unix()
+end
+
+;; POSIX single-quote escaping. Everything that reaches `sh -c` goes through this,
+;; so a game id / URL / launch argument can never be interpreted by the shell.
+pub fn shq(s: string) -> string is
+    return "'" + str::replace_all(s, "'", "'\\''") + "'"
+end
+
+;; Game / install ids become directory names and JSON keys. Keep them boring:
+;; [A-Za-z0-9._-], 1..64 chars, no leading dot (so no "." / ".." / hidden dirs).
+pub fn valid_id(s: string) -> bool is
+    let n: int = string_len(s)
+    if n == 0 || n > 64 is return false end
+    if string_at(s, 0) == "." is return false end
+    let allowed: string = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-"
+    let mut i: int = 0
+    while i < n is
+        if str::index_of(allowed, string_at(s, i)) < 0 is return false end
+        i += 1
+    end
+    return true
+end
+
+pub fn is_http_url(u: string) -> bool is
+    if string_len(u) > 2048 is return false end
+    if str::index_of(u, "\n") >= 0 || str::index_of(u, "\r") >= 0 is return false end
+    return string_starts_with(u, "https://") || string_starts_with(u, "http://")
+end
+
+;; Error reply: Silver rejects the JS promise with `message`.
+pub fn fail(code: string, message: string) -> string is
+    return ipc::error_json(code, message)
+end
+
+pub fn ok() -> string is
+    return data::set_bool(data::object(), "ok", true)
+end
+
+pub fn no_args() -> [string] is
+    let a: [string] = []
+    return a
+end
+
+pub fn lower(s: string) -> string is
+    return str::to_lower(s)
+end
